@@ -16,8 +16,8 @@
 services:
 
   granite-base:
-    # image: ghcr.io/ggerganov/llama.cpp:full-0f6135270839f0715843c4d480c63ae150def419-cuda
-    image: ghcr.io/ggml-org/llama.cpp:full-cuda
+    # image: ghcr.io/ggerganov/llama.cpp:server-0f6135270839f0715843c4d480c63ae150def419-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
     platform: linux/amd64
     command: >
       -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0

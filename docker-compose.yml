@@ -24,8 +24,8 @@ services:
   #     --port 9797 --host 127.0.0.1 --api-key $LLAMA_API_KEY
   # To force Rosetta emulation on Apple Silicon, add: platform: linux/amd64
   granite-base:
-    # image: ghcr.io/ggerganov/llama.cpp:full-0f6135270839f0715843c4d480c63ae150def419
-    image: ghcr.io/ggml-org/llama.cpp:full
+    # image: ghcr.io/ggerganov/llama.cpp:server-0f6135270839f0715843c4d480c63ae150def419
+    image: ghcr.io/ggml-org/llama.cpp:server
     platform: linux/amd64
     command: >
       -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0
@@ -117,6 +117,6 @@ volumes:
 #        args:
 #          PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cu124
 # 4. For the llama.cpp service use the CUDA image instead:
-#      # image: ghcr.io/ggerganov/llama.cpp:full-0f6135270839f0715843c4d480c63ae150def419-cuda
-#      image: ghcr.io/ggml-org/llama.cpp:full-cuda
+#      # image: ghcr.io/ggerganov/llama.cpp:server-0f6135270839f0715843c4d480c63ae150def419-cuda
+#      image: ghcr.io/ggml-org/llama.cpp:server-cuda
 #    and add the same deploy.resources block.
