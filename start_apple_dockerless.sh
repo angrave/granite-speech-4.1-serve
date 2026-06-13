@@ -36,7 +36,7 @@ BREW_PREFIX="$(brew --prefix)"
 find_python() {
   local dirs=("$BREW_PREFIX/bin" /usr/local/bin /usr/bin)
   for dir in "${dirs[@]}"; do
-    for ver in 3.13 3.12 3.11 3.10; do
+    for ver in 3.14 3.13 3.12 3.11 3.10; do
       local p="$dir/python$ver"
       if [[ -x "$p" ]] && "$p" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
         echo "$p"; return 0
