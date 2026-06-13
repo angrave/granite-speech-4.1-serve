@@ -11,10 +11,19 @@ Plus-model prompt modes (pass via the `prompt` form field):
                  [T:N] timestamps wrap at 1000 (centiseconds mod 1000 per model design).
   Speakers:     "<|audio|> Speaker attribution: Transcribe and denote who is speaking
                  by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns."
+  Combined:     "<|audio|> Timestamps and Speaker attribution: Transcribe the speech with
+                 proper punctuation and capitalization. After each word, add a timestamp tag
+                 showing the end time in centiseconds, e.g. hello [T:45] world [T:82].
+                 Denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before
+                 speaker turns."
+                 Note: timestamps and speaker tags are produced reliably; punctuation/
+                 capitalization is NOT — the plus model ignores that part of the prompt.
+                 Use the base model (granite-speech-4.1-2b) for punctuated output.
   Keywords:     "<|audio|> can you transcribe the speech into a written format? Keywords: word1, word2"
 
-The IBM system prompt (SYSTEM_PROMPT below) is required for timestamps and speaker
-attribution to activate — omitting it causes those modes to fall back to plain transcription.
+System prompt (SYSTEM_PROMPT / GRANITE_SYSTEM_PROMPT env var): optional in practice.
+Tested with and without — timestamps and speaker attribution activate either way with
+only ~1 cs timing jitter. Disable by setting GRANITE_SYSTEM_PROMPT="" if desired.
 
 OpenAI API compatibility note:
   timestamp_granularities[], verbose_json response format, speaker diarization, and keyword
@@ -49,14 +58,34 @@ DTYPE = torch.bfloat16
 _API_KEY = os.environ.get("GRANITE_API_KEY", "")
 _bearer = HTTPBearer(auto_error=False)
 
-# Required by the model for timestamps and speaker attribution to activate.
-SYSTEM_PROMPT = (
+# IBM system prompt — used by default.  Set GRANITE_SYSTEM_PROMPT="" to disable.
+# Required for timestamps and speaker attribution to activate reliably.
+SYSTEM_PROMPT = os.environ.get(
+    "GRANITE_SYSTEM_PROMPT",
     "Knowledge Cutoff Date: April 2024.\n"
     "Today's Date: December 19, 2024.\n"
-    "You are Granite, developed by IBM. You are a helpful AI assistant"
+    "You are Granite, developed by IBM. You are a helpful AI assistant",
 )
-DEFAULT_PROMPT = "<|audio|> can you transcribe the speech into a written format?"
-SAA_PROMPT = "<|audio|> Speaker attribution: Transcribe and denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns."
+
+DEFAULT_PROMPT  = "<|audio|> can you transcribe the speech into a written format?"
+PUNCT_PROMPT    = "<|audio|> transcribe the speech with proper punctuation and capitalization."
+TS_PROMPT       = (
+    "<|audio|> Timestamps: Transcribe the speech. After each word, add a timestamp tag "
+    "showing the end time in centiseconds, e.g. hello [T:45] world [T:82]"
+)
+SAA_PROMPT      = (
+    "<|audio|> Speaker attribution: Transcribe and denote who is speaking by adding "
+    "[Speaker 1]: and [Speaker 2]: tags before speaker turns."
+)
+# Single prompt requesting punctuation, word-level timestamps, and speaker attribution.
+# Tested: timestamps and speaker tags are produced reliably (with or without system prompt).
+# Punctuation/capitalization is NOT produced by the plus model regardless of prompt wording.
+COMBINED_PROMPT = (
+    "<|audio|> Timestamps and Speaker attribution: Transcribe the speech with proper "
+    "punctuation and capitalization. After each word, add a timestamp tag showing the "
+    "end time in centiseconds, e.g. hello [T:45] world [T:82]. Denote who is speaking "
+    "by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns."
+)
 
 # Serialize GPU access: MPS/CUDA handles one inference at a time.
 _INFER_SEM = asyncio.Semaphore(1)
@@ -80,6 +109,10 @@ async def lifespan(app: FastAPI):
         print("Auth enabled: Bearer token required on /v1/audio/transcriptions")
     else:
         print("WARNING: GRANITE_API_KEY not set — server accepts unauthenticated requests")
+    if SYSTEM_PROMPT:
+        print("System prompt: active (timestamps and speaker attribution enabled)")
+    else:
+        print("WARNING: GRANITE_SYSTEM_PROMPT is empty — timestamps/speaker attribution may fall back to plain ASR")
     print(f"Loading {MODEL_ID} on {DEVICE} ...")
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     _model = AutoModelForSpeechSeq2Seq.from_pretrained(

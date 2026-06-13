@@ -64,6 +64,15 @@ curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
 
 echo ""
+echo "=== Plus — punctuated ASR (port 8001) ==="
+curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+  -H "Authorization: Bearer ${GRANITE_API_KEY}" \
+  -F "file=@${AUDIO}" \
+  -F "model=plus" \
+  --form-string "prompt=<|audio|> transcribe the speech with proper punctuation and capitalization." \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
+
+echo ""
 echo "=== Plus — keyword biasing (port 8001) ==="
 # Add keywords to bias recognition towards domain-specific terms.
 curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
@@ -71,6 +80,15 @@ curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
   --form-string "prompt=<|audio|> can you transcribe the speech into a written format? Keywords: timothy, velvet, hearth" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
+
+echo ""
+echo "=== Plus — combined (punct + timestamps + speakers) on single-speaker (port 8001) ==="
+curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+  -H "Authorization: Bearer ${GRANITE_API_KEY}" \
+  -F "file=@${AUDIO}" \
+  -F "model=plus" \
+  --form-string "prompt=<|audio|> Timestamps and Speaker attribution: Transcribe the speech with proper punctuation and capitalization. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]. Denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns." \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
 
 echo ""
@@ -95,6 +113,25 @@ print(text)
 assert '[Speaker 1]:' in text and '[Speaker 2]:' in text, \
     'FAIL: expected both [Speaker 1]: and [Speaker 2]: tags'
 print('PASS: speaker split detected')
+"
+
+echo ""
+echo "=== Plus — combined (punct + timestamps + speakers) on multi-speaker audio (port 8001) ==="
+# Tests whether the model can produce punctuation, word-level timestamps, and
+# speaker tags all from a single prompt.
+curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+  -H "Authorization: Bearer ${GRANITE_API_KEY}" \
+  -F "file=@test_multi_speaker.wav" \
+  -F "model=plus" \
+  --form-string "prompt=<|audio|> Timestamps and Speaker attribution: Transcribe the speech with proper punctuation and capitalization. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]. Denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns." \
+  | python3 -c "
+import sys, json
+text = json.load(sys.stdin)['text']
+print(text)
+has_speakers = '[Speaker 1]:' in text and '[Speaker 2]:' in text
+has_timestamps = '[T:' in text
+print('PASS' if has_speakers else 'WARN: speaker tags missing',
+      '| speakers:', has_speakers, '| timestamps:', has_timestamps)
 "
 
 echo ""
