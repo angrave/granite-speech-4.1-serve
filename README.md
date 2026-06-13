@@ -111,21 +111,21 @@ Then use the `cuda` image tag and ensure `nvidia-container-toolkit` is installed
 
 ### Apple Silicon note
 
-MPS acceleration is not available inside Docker (Linux VM). For native MPS performance, run the servers directly:
+MPS acceleration is not available inside Docker (Linux VM). For native MPS performance, use the provided script:
 
 ```bash
-pip install torch torchaudio          # arm64 wheel, includes MPS
-pip install -r requirements.txt
-uvicorn serve_plus:app --port 8001
-uvicorn serve_nar:app --port 8002
+cp .env.example .env      # fill in GRANITE_API_KEY and LLAMA_API_KEY
+./start_apple_dockerless.sh
 ```
 
-The llama.cpp base server has no arm64 Docker image; run it natively too:
+`start_apple_dockerless.sh` lazy-installs all dependencies on first run (Homebrew, llama.cpp, a Python venv, PyTorch arm64 + MPS, and the Python requirements), then starts all three servers. Prerequisites it does **not** auto-install:
 
-```bash
-llama-server -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
-  --port 9797 --host 127.0.0.1 --api-key "$LLAMA_API_KEY"
-```
+- **Homebrew** — install from <https://brew.sh> if missing
+- **Python 3.9+** — install via `brew install python` if missing
+
+Server output is written to `base.log`, `plus.log`, and `nar.log` in the repo root. Run `tail -f *.log` in a second terminal to monitor startup. Models are downloaded from HuggingFace on first run (several GB each); subsequent starts load from cache.
+
+Press `Ctrl-C` to stop all three servers.
 
 ---
 

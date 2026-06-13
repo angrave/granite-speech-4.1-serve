@@ -1,5 +1,7 @@
 venv/
+.venv/
 __pycache__/
+*.log
 PLAN1-InstallVerifyBenchmark.md
 PLAN1-Overview.md
 PLAN-Speaker.md
