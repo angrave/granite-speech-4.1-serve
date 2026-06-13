@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+PLAN1-InstallVerifyBenchmark.md
+PLAN1-Overview.md
+PLAN-Speaker.md
+.env

@@ -1,0 +1,112 @@
+# Granite Speech 4.1-2B — three OpenAI-compatible STT endpoints.
+#
+# Usage:
+#   cp .env.example .env          # set LLAMA_API_KEY and GRANITE_API_KEY
+#   docker compose up --build
+#
+# Endpoints (accessible from host):
+#   http://localhost:9797  — base model (llama.cpp, Q8_0 GGUF)
+#   http://localhost:8001  — plus model (FastAPI, bfloat16)
+#   http://localhost:8002  — NAR model  (FastAPI, bfloat16)
+#
+# All three serve POST /v1/audio/transcriptions (OpenAI-compatible).
+# GET /health requires no auth.
+#
+# Note: MPS is unavailable inside Docker (Linux VM). All services run on CPU.
+# For CUDA on Linux, see the gpu-* profiles below and the NVIDIA runtime note.
+
+services:
+
+  # ── Backend 1: llama.cpp server (base model, Q8_0 GGUF) ──────────────────
+  # Note: llama.cpp images are linux/amd64 only — no arm64 build is published.
+  # On Apple Silicon, run granite-base natively instead:
+  #   llama-server -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
+  #     --port 9797 --host 127.0.0.1 --api-key $LLAMA_API_KEY
+  # To force Rosetta emulation on Apple Silicon, add: platform: linux/amd64
+  granite-base:
+    image: ghcr.io/ggerganov/llama.cpp:full-0f6135270839f0715843c4d480c63ae150def419
+    platform: linux/amd64
+    command: >
+      -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0
+      --port 9797
+      --host 0.0.0.0
+      --api-key ${LLAMA_API_KEY:-}
+    ports:
+      - "127.0.0.1:9797:9797"
+    environment:
+      - LLAMA_API_KEY=${LLAMA_API_KEY:-}
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      - llama_cache:/root/.cache/llama.cpp
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9797/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # ── Backend 2a: plus model (autoregressive, speaker diarisation) ──────────
+  granite-plus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn serve_plus:app --host 0.0.0.0 --port 8001
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      - GRANITE_API_KEY=${GRANITE_API_KEY:-}
+      - HF_HOME=/cache/huggingface
+    volumes:
+      - hf_cache:/cache/huggingface
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  # ── Backend 2b: NAR model (non-autoregressive, fastest) ──────────────────
+  granite-nar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn serve_nar:app --host 0.0.0.0 --port 8002
+    ports:
+      - "127.0.0.1:8002:8002"
+    environment:
+      - GRANITE_API_KEY=${GRANITE_API_KEY:-}
+      - HF_HOME=/cache/huggingface
+    volumes:
+      - hf_cache:/cache/huggingface
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+volumes:
+  # Shared HuggingFace model cache — models download once and persist across restarts.
+  hf_cache:
+  # llama.cpp model cache (base model GGUF).
+  llama_cache:
+
+# ── CUDA / GPU notes ─────────────────────────────────────────────────────────
+# To use NVIDIA GPUs on Linux:
+# 1. Install nvidia-container-toolkit on the host.
+# 2. Add to granite-plus and granite-nar services:
+#      deploy:
+#        resources:
+#          reservations:
+#            devices:
+#              - driver: nvidia
+#                count: 1
+#                capabilities: [gpu]
+# 3. Change the PyTorch install in Dockerfile to the CUDA wheel:
+#      --index-url https://download.pytorch.org/whl/cu121
+# 4. For the llama.cpp service use the CUDA image instead:
+#      image: ghcr.io/ggerganov/llama.cpp:full-0f6135270839f0715843c4d480c63ae150def419-cuda
+#    and add the same deploy.resources block.
