@@ -26,7 +26,7 @@ cp .env.example .env          # set HF_TOKEN, LLAMA_API_KEY and GRANITE_API_KEY
 ./start_local_docker.sh
 ```
 
-Both scripts auto-detect an NVIDIA GPU: on Linux with a CUDA-capable GPU they pull/build the `:cuda` image and enable GPU passthrough; otherwise they use the CPU image. On Mac Silicon, Docker pulls the `arm64` layer of `:latest` automatically — no separate script needed. Note that MPS acceleration is unavailable inside Docker on Mac (Linux VM); for native MPS performance, run the servers directly (see [Apple Silicon note](#apple-silicon-note) below).
+Both scripts auto-detect an NVIDIA GPU: on Linux with a CUDA-capable GPU they pull/build the `:cuda` image and enable GPU passthrough; otherwise they use the CPU image. Both also load `docker-compose.local.yml` if it exists — see [Local overrides](#local-overrides) below. On Mac Silicon, Docker pulls the `arm64` layer of `:latest` automatically — no separate script needed. Note that MPS acceleration is unavailable inside Docker on Mac (Linux VM); for native MPS performance, run the servers directly (see [Apple Silicon note](#apple-silicon-note) below).
 
 Models are downloaded from HuggingFace on first start (several GB) and cached in a named volume.
 
@@ -79,6 +79,52 @@ Timestamp values wrap at 1000 centiseconds (model design). The plus model does n
 | `LLAMA_API_KEY` | _(unset = no auth)_ | Bearer token for the llama.cpp base server |
 | `GRANITE_SYSTEM_PROMPT` | IBM system prompt | Set to `""` to disable the system prompt |
 | `HF_HOME` | `/cache/huggingface` | HuggingFace model cache directory |
+
+---
+
+## Local overrides
+
+Create a `docker-compose.local.yml` file in the project root to customise your deployment without touching the git-tracked compose files. Both start scripts pick it up automatically if it exists; it is listed in `.gitignore` so it will never be committed.
+
+Common uses:
+
+**Expose service ports to the host:**
+```yaml
+services:
+  granite-plus:
+    ports:
+      - "8001:8001"
+  granite-nar:
+    ports:
+      - "8002:8002"
+  granite-base:
+    ports:
+      - "9797:9797"
+```
+
+**Add a sidecar service (e.g. a reverse proxy):**
+```yaml
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+```
+
+**Override resource limits or environment variables:**
+```yaml
+services:
+  granite-plus:
+    environment:
+      GRANITE_SYSTEM_PROMPT: ""
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8g
+```
 
 ---
 

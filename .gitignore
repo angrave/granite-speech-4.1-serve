@@ -4,3 +4,4 @@ PLAN1-InstallVerifyBenchmark.md
 PLAN1-Overview.md
 PLAN-Speaker.md
 .env
+docker-compose.local.yml
