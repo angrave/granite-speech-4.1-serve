@@ -13,7 +13,7 @@ OpenAI-compatible speech-to-text API server for [IBM Granite Speech 4.1-2B](http
 ## Quick start
 
 ```bash
-cp .env.example .env          # set LLAMA_API_KEY and GRANITE_API_KEY
+cp .env.example .env          # set HF_TOKEN, LLAMA_API_KEY and GRANITE_API_KEY
 docker compose up --build
 ```
 
