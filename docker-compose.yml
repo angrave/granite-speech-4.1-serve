@@ -12,8 +12,9 @@
 # All three serve POST /v1/audio/transcriptions (OpenAI-compatible).
 # GET /health requires no auth.
 #
-# Note: MPS is unavailable inside Docker (Linux VM). All services run on CPU.
-# For CUDA on Linux, see the gpu-* profiles below and the NVIDIA runtime note.
+# Note: MPS is unavailable inside Docker (Linux VM).
+# For CUDA on Linux, layer in docker-compose.gpu.yml — or use start_local_docker.sh
+# which detects an NVIDIA GPU automatically.
 
 services:
 
@@ -52,6 +53,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     command: uvicorn serve_plus:app --host 0.0.0.0 --port 8001
     ports:
       - "127.0.0.1:8001:8001"
@@ -74,6 +77,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     command: uvicorn serve_nar:app --host 0.0.0.0 --port 8002
     ports:
       - "127.0.0.1:8002:8002"
@@ -108,8 +113,15 @@ volumes:
 #              - driver: nvidia
 #                count: 1
 #                capabilities: [gpu]
-# 3. Change the PyTorch install in Dockerfile to the CUDA wheel:
-#      --index-url https://download.pytorch.org/whl/cu121
+# 3. Switch granite-plus and granite-nar to the pre-built CUDA image:
+#      image: ghcr.io/angrave/granite-speech-4.1-serve:cuda
+#    (remove the build: block — the :cuda image is published by CI with cu124 wheels)
+#    Alternatively, keep build: and pass the CUDA wheel index as a build arg:
+#      build:
+#        context: .
+#        dockerfile: Dockerfile
+#        args:
+#          PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cu124
 # 4. For the llama.cpp service use the CUDA image instead:
 #      image: ghcr.io/ggml-org/llama.cpp:server-cuda
 #    and add the same deploy.resources block.

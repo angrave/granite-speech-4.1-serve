@@ -14,8 +14,19 @@ OpenAI-compatible speech-to-text API server for [IBM Granite Speech 4.1-2B](http
 
 ```bash
 cp .env.example .env          # set HF_TOKEN, LLAMA_API_KEY and GRANITE_API_KEY
-docker compose up --build
 ```
+
+**Option A — use pre-built images from ghcr.io (recommended):**
+```bash
+./start_ghcr.sh
+```
+
+**Option B — build from local source:**
+```bash
+./start_local_docker.sh
+```
+
+Both scripts auto-detect an NVIDIA GPU: on Linux with a CUDA-capable GPU they pull/build the `:cuda` image and enable GPU passthrough; otherwise they use the CPU image. On Mac Silicon, Docker pulls the `arm64` layer of `:latest` automatically — no separate script needed. Note that MPS acceleration is unavailable inside Docker on Mac (Linux VM); for native MPS performance, run the servers directly (see [Apple Silicon note](#apple-silicon-note) below).
 
 Models are downloaded from HuggingFace on first start (several GB) and cached in a named volume.
 

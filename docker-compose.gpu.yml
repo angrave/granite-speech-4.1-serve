@@ -1,0 +1,34 @@
+# GPU override — applied on top of docker-compose.yml by start_local_docker.sh
+# when an NVIDIA GPU is detected.  Do not use this file standalone.
+#
+# Usage (automatic via start_local_docker.sh, or manually):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+
+services:
+  granite-base:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  granite-plus:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  granite-nar:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

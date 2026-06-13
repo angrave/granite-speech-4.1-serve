@@ -3,7 +3,14 @@ set -euo pipefail
 
 AUDIO="${1:-test.wav}"
 
-# Keys must be in environment — source .env before running this script
+# Auto-source .env if keys aren't already in the environment
+if [[ -z "${LLAMA_API_KEY:-}" || -z "${GRANITE_API_KEY:-}" ]] && [[ -f .env ]]; then
+  # shellcheck source=.env
+  # shellcheck disable=SC1091
+  source .env
+fi
+
+# Keys must be in environment
 : "${LLAMA_API_KEY:?LLAMA_API_KEY not set. Run: source .env}"
 : "${GRANITE_API_KEY:?GRANITE_API_KEY not set. Run: source .env}"
 
@@ -21,7 +28,7 @@ for port in 9797 8001 8002; do
   code=$(curl -s -o /dev/null -w "%{http_code}" \
     -F "file=@${AUDIO}" \
     -F "model=test" \
-    "http://127.0.0.1:${port}/v1/audio/transcriptions")
+    "http://127.0.0.1:${port}/v1/audio/transcriptions" 2>/dev/null || echo "000")
   echo "  Port ${port} without key: HTTP ${code}"
 done
 
