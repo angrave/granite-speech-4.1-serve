@@ -10,7 +10,28 @@ OpenAI-compatible speech-to-text API server for [IBM Granite Speech 4.1-2B](http
 
 ---
 
-## Quick start
+## Quick start (pre-built CUDA image — no build required)
+
+Pull and run the published CUDA images with a single file — no source checkout needed:
+
+```bash
+# 1. Download the deploy compose file
+curl -O https://raw.githubusercontent.com/angrave/granite-4.2/main/docker-compose-deploy.yml
+
+# 2. Set credentials (all optional — omit to disable auth)
+export HF_TOKEN=your-hf-token        # required if models are gated on HuggingFace
+export GRANITE_API_KEY=your-secret   # bearer token for plus/NAR endpoints
+export LLAMA_API_KEY=your-secret     # bearer token for base endpoint
+
+# 3. Start all three services
+docker compose -f docker-compose-deploy.yml up
+```
+
+Requires `nvidia-container-toolkit` on the host for GPU passthrough. Models download from HuggingFace on first start (several GB) and are cached in a named Docker volume.
+
+---
+
+## Quick start (build from source)
 
 ```bash
 cp .env.example .env          # set HF_TOKEN, LLAMA_API_KEY and GRANITE_API_KEY
