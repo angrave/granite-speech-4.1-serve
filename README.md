@@ -75,12 +75,19 @@ Timestamp values wrap at 1000 centiseconds (model design). The plus model does n
 
 Pre-built images are published to `ghcr.io/angrave/granite-speech-4.1-serve` on every push to `main`.
 
-| Tag | Platforms | When to use |
-|-----|-----------|-------------|
-| `latest` | `linux/amd64`, `linux/arm64` | CPU inference — plain x86_64 servers and Apple Silicon |
-| `cuda` | `linux/amd64`, `linux/arm64` | NVIDIA GPU — x86_64 servers (`amd64`) and Spark G10/GB10/GH200 (`arm64`) |
+| Tag | Architecture | When to use |
+|-----|-------------|-------------|
+| `latest` | `linux/amd64` | CPU inference on x86_64 servers |
+| `latest` | `linux/arm64` | CPU inference on Apple Silicon (Linux VM) |
+| `cuda` | `linux/amd64` | NVIDIA GPU on x86_64 servers |
+| `cuda` | `linux/arm64` | NVIDIA GPU on GB10 Grace-Blackwell / GH200 / Jetson Orin |
 
-Docker pulls the correct architecture automatically.
+Each tag is a multi-arch manifest — `docker pull` selects the right architecture automatically:
+
+```bash
+docker pull ghcr.io/angrave/granite-speech-4.1-serve:latest   # CPU (amd64 or arm64)
+docker pull ghcr.io/angrave/granite-speech-4.1-serve:cuda     # NVIDIA GPU (amd64 or arm64)
+```
 
 ### Enabling NVIDIA GPU passthrough
 
