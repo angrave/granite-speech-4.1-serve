@@ -10,11 +10,14 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Install PyTorch first (large download, kept in its own layer for cache efficiency).
-# CPU wheel includes MPS stubs; add --extra-index-url for CUDA if needed.
+# PYTORCH_INDEX_URL controls which wheel set is used:
+#   CPU (default): https://download.pytorch.org/whl/cpu
+#   CUDA 12.4:     https://download.pytorch.org/whl/cu124
+# PyTorch CUDA wheels are self-contained (bundled runtime); no CUDA host install needed.
+ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir \
     torch torchaudio \
-    --index-url https://download.pytorch.org/whl/cpu
+    --index-url ${PYTORCH_INDEX_URL}
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
