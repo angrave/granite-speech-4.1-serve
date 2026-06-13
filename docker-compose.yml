@@ -105,8 +105,16 @@ volumes:
 #              - driver: nvidia
 #                count: 1
 #                capabilities: [gpu]
-# 3. Change the PyTorch install in Dockerfile to the CUDA wheel:
-#      --index-url https://download.pytorch.org/whl/cu121
+# 3. Use the pre-built CUDA image published by CI (recommended):
+#      image: ghcr.io/angrave/granite-4.2:cuda
+#    GitHub Actions builds and publishes :latest (CPU) and :cuda (CUDA 12.4)
+#    multi-arch manifests automatically — no Dockerfile edits needed.
+#    Alternatively, build locally with the CUDA PyTorch wheel:
+#      build:
+#        context: .
+#        dockerfile: Dockerfile
+#        args:
+#          PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cu124
 # 4. For the llama.cpp service use the CUDA image instead:
 #      image: ghcr.io/ggerganov/llama.cpp:full-0f6135270839f0715843c4d480c63ae150def419-cuda
 #    and add the same deploy.resources block.
