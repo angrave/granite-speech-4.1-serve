@@ -12,5 +12,10 @@ else
   echo "No NVIDIA GPU detected — using ghcr.io image :latest (CPU)"
 fi
 
+if [ -f docker-compose.local.yml ]; then
+  COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.local.yml"
+  echo "Applying local overrides from docker-compose.local.yml"
+fi
+
 docker compose $COMPOSE_FILES pull
 docker compose $COMPOSE_FILES up -d
