@@ -27,19 +27,41 @@ if ! command -v llama-server &>/dev/null; then
   brew install llama.cpp
 fi
 
-# ── Python 3.9+ ─────────────────────────────────────────────────────────────────
+# ── Python 3.10+ ────────────────────────────────────────────────────────────────
+# The NAR model's remote code uses Python 3.10+ union-type syntax (int | None).
+# Prefer a versioned interpreter from Homebrew; lazy-install python@3.11 if needed.
 
-command -v python3 &>/dev/null \
-  || die "python3 not found. Install Python 3.9+ (e.g. brew install python) and re-run."
+BREW_PREFIX="$(brew --prefix)"
 
-python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,9) else 1)' \
-  || die "Python 3.9+ required (found $(python3 --version))."
+find_python() {
+  local dirs=("$BREW_PREFIX/bin" /usr/local/bin /usr/bin)
+  for dir in "${dirs[@]}"; do
+    for ver in 3.13 3.12 3.11 3.10; do
+      local p="$dir/python$ver"
+      if [[ -x "$p" ]] && "$p" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
+        echo "$p"; return 0
+      fi
+    done
+  done
+  return 1
+}
+
+if ! PYTHON=$(find_python); then
+  info "No Python 3.10+ found — installing python@3.11 via Homebrew..."
+  brew install python@3.11
+  PYTHON=$(find_python) || die "Python 3.10+ still not found after install. Please install manually: brew install python@3.11"
+fi
+info "Using $PYTHON ($(${PYTHON} --version))"
 
 # ── Virtual environment ──────────────────────────────────────────────────────────
 
 if [[ ! -d "$VENV" ]]; then
   info "Creating virtual environment at .venv ..."
-  python3 -m venv "$VENV"
+  "$PYTHON" -m venv "$VENV"
+elif ! "$VENV/bin/python3" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
+  info "Existing .venv is Python <3.10 — recreating with $PYTHON ..."
+  rm -rf "$VENV"
+  "$PYTHON" -m venv "$VENV"
 fi
 # shellcheck source=/dev/null
 source "$VENV/bin/activate"
@@ -87,17 +109,18 @@ done
 
 cd "$SCRIPT_DIR"
 
+PIDS=()
+NAMES=()
+LOGS=()
+
 cleanup() {
   echo ""
   echo "Stopping servers..."
-  # shellcheck disable=SC2317
-  kill "${PIDS[@]}" 2>/dev/null || true
-  wait "${PIDS[@]}" 2>/dev/null || true
+  [[ ${#PIDS[@]} -gt 0 ]] && kill "${PIDS[@]}" 2>/dev/null || true
+  [[ ${#PIDS[@]} -gt 0 ]] && wait "${PIDS[@]}" 2>/dev/null || true
   echo "Done."
 }
-trap cleanup EXIT INT TERM
-
-PIDS=()
+trap cleanup INT TERM
 
 echo ""
 echo "Starting servers (logs: base.log, plus.log, nar.log — use 'tail -f *.log' to monitor)"
@@ -114,14 +137,31 @@ llama-server \
   --port 9797 --host 127.0.0.1 \
   --api-key "$LLAMA_API_KEY" \
   >> "$SCRIPT_DIR/base.log" 2>&1 &
-PIDS+=($!)
+PIDS+=($!); NAMES+=("granite-base"); LOGS+=("base.log")
 
 uvicorn serve_plus:app --port 8001 --host 127.0.0.1 \
   >> "$SCRIPT_DIR/plus.log" 2>&1 &
-PIDS+=($!)
+PIDS+=($!); NAMES+=("granite-plus"); LOGS+=("plus.log")
 
 uvicorn serve_nar:app --port 8002 --host 127.0.0.1 \
   >> "$SCRIPT_DIR/nar.log" 2>&1 &
-PIDS+=($!)
+PIDS+=($!); NAMES+=("granite-nar"); LOGS+=("nar.log")
 
-wait "${PIDS[@]}"
+# Monitor: report if a server exits unexpectedly but keep the others running.
+while true; do
+  sleep 3
+  alive=(); alive_names=(); alive_logs=()
+  for i in "${!PIDS[@]}"; do
+    if kill -0 "${PIDS[$i]}" 2>/dev/null; then
+      alive+=("${PIDS[$i]}")
+      alive_names+=("${NAMES[$i]}")
+      alive_logs+=("${LOGS[$i]}")
+    else
+      echo "WARNING: ${NAMES[$i]} exited — check ${LOGS[$i]}"
+    fi
+  done
+  PIDS=("${alive[@]+"${alive[@]}"}")
+  NAMES=("${alive_names[@]+"${alive_names[@]}"}")
+  LOGS=("${alive_logs[@]+"${alive_logs[@]}"}")
+  [[ ${#PIDS[@]} -gt 0 ]] || { echo "All servers have exited."; break; }
+done

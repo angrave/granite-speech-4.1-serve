@@ -118,14 +118,17 @@ cp .env.example .env      # fill in GRANITE_API_KEY and LLAMA_API_KEY
 ./start_apple_dockerless.sh
 ```
 
-`start_apple_dockerless.sh` lazy-installs all dependencies on first run (Homebrew, llama.cpp, a Python venv, PyTorch arm64 + MPS, and the Python requirements), then starts all three servers. Prerequisites it does **not** auto-install:
+`start_apple_dockerless.sh` lazy-installs all dependencies on first run (llama.cpp, Python 3.11, a venv, PyTorch arm64 + MPS, and the Python requirements), then starts all three servers. The only prerequisite it does **not** auto-install:
 
 - **Homebrew** — install from <https://brew.sh> if missing
-- **Python 3.9+** — install via `brew install python` if missing
+
+Python 3.10+ is required (the NAR model's remote code uses Python 3.10+ union-type syntax). The script auto-installs `python@3.11` via Homebrew if no suitable interpreter is found.
 
 Server output is written to `base.log`, `plus.log`, and `nar.log` in the repo root. Run `tail -f *.log` in a second terminal to monitor startup. Models are downloaded from HuggingFace on first run (several GB each); subsequent starts load from cache.
 
 Press `Ctrl-C` to stop all three servers.
+
+> **llama.cpp version note:** The `granite-base` server (port 9797) requires a llama.cpp build that supports the `granite_speech` multimodal projector. If the Homebrew-installed version is too old you will see `unknown projector type: granite_speech` in `base.log` — the script will warn and keep the plus and NAR servers running. Build llama.cpp from source or wait for the Homebrew formula to update.
 
 ---
 
