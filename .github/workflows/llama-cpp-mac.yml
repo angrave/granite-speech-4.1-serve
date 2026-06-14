@@ -1,0 +1,82 @@
+name: Build llama-server (macOS arm64)
+
+# Builds llama.cpp from source on Apple Silicon with Metal enabled.
+# Produces a llama-server binary that supports the granite_speech multimodal
+# projector, which the Homebrew-packaged version currently lacks.
+#
+# The binary is attached to GitHub Releases when a release is published.
+# It is also available as a workflow artifact for 90 days on every main push.
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build llama-server (macOS arm64)
+    runs-on: macos-14   # Apple Silicon (M1) runner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone llama.cpp
+        run: git clone --depth 1 https://github.com/ggml-org/llama.cpp llama.cpp
+
+      - name: Cache CMake build
+        uses: actions/cache@v4
+        with:
+          path: llama.cpp/build
+          key: llama-cpp-mac-arm64-${{ hashFiles('llama.cpp/.git/refs/heads/main') }}
+          restore-keys: llama-cpp-mac-arm64-
+
+      - name: Configure
+        run: |
+          cmake -S llama.cpp -B llama.cpp/build \
+            -DGGML_METAL=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_SERVER=ON
+
+      - name: Build
+        run: |
+          cmake --build llama.cpp/build --target llama-server \
+            -j$(sysctl -n hw.logicalcpu)
+
+      - name: Verify granite_speech support
+        run: |
+          # The string may live in libmtmd.dylib rather than the main binary itself.
+          if strings llama.cpp/build/bin/llama-server | grep -q "granite_speech"; then
+            echo "✓ granite_speech found in llama-server binary"
+          elif strings llama.cpp/build/bin/libmtmd*.dylib 2>/dev/null | grep -q "granite_speech"; then
+            echo "✓ granite_speech found in libmtmd dylib"
+          else
+            echo "ERROR: granite_speech projector not found in binary or dylibs"
+            exit 1
+          fi
+          llama.cpp/build/bin/llama-server --version
+
+      - name: Package binary and dylibs
+        run: |
+          # Bundle llama-server with the dylibs it links at @rpath.
+          # Without the dylibs the binary cannot run on another machine.
+          mkdir -p llama-server-macos-arm64
+          cp llama.cpp/build/bin/llama-server llama-server-macos-arm64/
+          cp llama.cpp/build/bin/lib*.dylib   llama-server-macos-arm64/
+          tar -czf llama-server-macos-arm64.tar.gz llama-server-macos-arm64/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-server-macos-arm64
+          path: llama-server-macos-arm64.tar.gz
+          retention-days: 90
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: llama-server-macos-arm64.tar.gz

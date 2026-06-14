@@ -117,6 +117,7 @@ async def lifespan(app: FastAPI):
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     _model = AutoModelForSpeechSeq2Seq.from_pretrained(
         MODEL_ID,
+        trust_remote_code=True,
         dtype=DTYPE,
         device_map=DEVICE,
     ).eval()

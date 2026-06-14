@@ -17,6 +17,13 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
+# Workaround: the NAR model's remote code imports PreTrainedConfig (capital T) but
+# current transformers exposes PretrainedConfig (lowercase t) from configuration_utils.
+# Patch the alias before the model's remote code runs.
+import transformers.configuration_utils as _cu
+if not hasattr(_cu, "PreTrainedConfig") and hasattr(_cu, "PretrainedConfig"):
+    _cu.PreTrainedConfig = _cu.PretrainedConfig  # type: ignore[attr-defined]
+
 import soundfile as sf
 import torch
 import torchaudio.functional as AF

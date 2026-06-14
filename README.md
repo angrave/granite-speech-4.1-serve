@@ -157,21 +157,24 @@ Then use the `cuda` image tag and ensure `nvidia-container-toolkit` is installed
 
 ### Apple Silicon note
 
-MPS acceleration is not available inside Docker (Linux VM). For native MPS performance, run the servers directly:
+MPS acceleration is not available inside Docker (Linux VM). For native MPS performance, use the provided script:
 
 ```bash
-pip install torch torchaudio          # arm64 wheel, includes MPS
-pip install -r requirements.txt
-uvicorn serve_plus:app --port 8001
-uvicorn serve_nar:app --port 8002
+cp .env.example .env      # fill in GRANITE_API_KEY and LLAMA_API_KEY
+./start_apple_dockerless.sh
 ```
 
-The llama.cpp base server has no arm64 Docker image; run it natively too:
+`start_apple_dockerless.sh` lazy-installs all dependencies on first run (llama.cpp, Python 3.11, a venv, PyTorch arm64 + MPS, and the Python requirements), then starts all three servers. The only prerequisite it does **not** auto-install:
 
-```bash
-llama-server -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
-  --port 9797 --host 127.0.0.1 --api-key "$LLAMA_API_KEY"
-```
+- **Homebrew** — install from <https://brew.sh> if missing
+
+Python 3.10+ is required (the NAR model's remote code uses Python 3.10+ union-type syntax). The script auto-installs `python@3.11` via Homebrew if no suitable interpreter is found.
+
+Server output is written to `base.log`, `plus.log`, and `nar.log` in the repo root. Run `tail -f *.log` in a second terminal to monitor startup. Models are downloaded from HuggingFace on first run (several GB each); subsequent starts load from cache.
+
+Press `Ctrl-C` to stop all three servers.
+
+> **llama.cpp version note:** The `granite-base` server (port 9797) requires a llama.cpp build that supports the `granite_speech` multimodal projector. If the Homebrew-installed version is too old you will see `unknown projector type: granite_speech` in `base.log` — the script will warn and keep the plus and NAR servers running. Build llama.cpp from source or wait for the Homebrew formula to update.
 
 ---
 
