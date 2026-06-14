@@ -1,4 +1,4 @@
-"""FastAPI server for granite-speech-4.1-2b-nar on port 8002.
+"""FastAPI server for granite-speech-4.1-2b-nar on port 8702.
 
 OpenAI-compatible endpoint: POST /v1/audio/transcriptions
 Auth: set GRANITE_API_KEY env var to require Bearer token. Unset = no auth.

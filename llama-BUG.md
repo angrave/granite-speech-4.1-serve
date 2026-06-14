@@ -129,11 +129,11 @@ the LLM generates only one token (empty string or invisible special token) and h
 ```bash
 llama-server \
   -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
-  --port 9797 --host 127.0.0.1 \
+  --port 8700 --host 127.0.0.1 \
   --api-key test-key
 ```
 
-Wait for: `server is listening on http://127.0.0.1:9797`
+Wait for: `server is listening on http://127.0.0.1:8700`
 
 **2. Transcribe a short clip (should succeed):**
 
@@ -149,7 +149,7 @@ with wave.open("short.wav", "w") as dst:
     dst.writeframes(data)
 EOF
 
-curl -s http://127.0.0.1:9797/v1/audio/transcriptions \
+curl -s http://127.0.0.1:8700/v1/audio/transcriptions \
   -H "Authorization: Bearer test-key" \
   -F "model=ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
   -F "file=@short.wav" \
@@ -160,7 +160,7 @@ curl -s http://127.0.0.1:9797/v1/audio/transcriptions \
 **3. Transcribe the full file (reproduces the bug):**
 
 ```bash
-curl -s http://127.0.0.1:9797/v1/audio/transcriptions \
+curl -s http://127.0.0.1:8700/v1/audio/transcriptions \
   -H "Authorization: Bearer test-key" \
   -F "model=ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
   -F "file=@long.wav" \

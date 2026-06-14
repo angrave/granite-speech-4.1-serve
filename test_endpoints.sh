@@ -15,7 +15,7 @@ fi
 : "${GRANITE_API_KEY:?GRANITE_API_KEY not set. Run: source .env}"
 
 echo "=== Pre-flight: server health (no auth required) ==="
-for port in 9797 8001 8002; do
+for port in 8700 8701 8702; do
   result=$(curl -sf "http://127.0.0.1:${port}/health" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','?'), '| auth:', d.get('auth','n/a'))" \
     2>/dev/null || echo "UNREACHABLE")
@@ -24,7 +24,7 @@ done
 
 echo ""
 echo "=== Auth rejection check (expect 401 from all three) ==="
-for port in 9797 8001 8002; do
+for port in 8700 8701 8702; do
   code=$(curl -s -o /dev/null -w "%{http_code}" \
     -F "file=@${AUDIO}" \
     -F "model=test" \
@@ -33,8 +33,8 @@ for port in 9797 8001 8002; do
 done
 
 echo ""
-echo "=== Base (llama.cpp proxy, port 9797) ==="
-raw=$(curl -s http://127.0.0.1:9797/v1/audio/transcriptions \
+echo "=== Base (llama.cpp proxy, port 8700) ==="
+raw=$(curl -s http://127.0.0.1:8700/v1/audio/transcriptions \
   -H "Authorization: Bearer ${LLAMA_API_KEY}" \
   -F "model=ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
   -F "file=@${AUDIO}" \
@@ -50,8 +50,8 @@ print('  PASS: non-empty')
 " "${raw}"
 
 echo ""
-echo "=== Plus — plain ASR (port 8001) ==="
-raw=$(curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+echo "=== Plus — plain ASR (port 8701) ==="
+raw=$(curl -s http://127.0.0.1:8701/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus")
@@ -67,11 +67,11 @@ print('  PASS: non-empty')
 " "${raw}"
 
 echo ""
-echo "=== Plus — word-level timestamps (port 8001) ==="
+echo "=== Plus — word-level timestamps (port 8701) ==="
 # Timestamps use format [T:N] where N is end-time in centiseconds mod 1000.
 # Note: use --form-string (not -F) for prompts that start with <|audio|> — curl's
 # -F flag treats values starting with < as file-content references.
-raw=$(curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+raw=$(curl -s http://127.0.0.1:8701/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
@@ -88,8 +88,8 @@ print('  PASS: non-empty')
 " "${raw}"
 
 echo ""
-echo "=== Plus — speaker attribution (port 8001) ==="
-raw=$(curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+echo "=== Plus — speaker attribution (port 8701) ==="
+raw=$(curl -s http://127.0.0.1:8701/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
@@ -107,9 +107,9 @@ print('  PASS: non-empty')
 
 
 echo ""
-echo "=== Plus — keyword biasing (port 8001) ==="
+echo "=== Plus — keyword biasing (port 8701) ==="
 # Add keywords to bias recognition towards domain-specific terms.
-raw=$(curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+raw=$(curl -s http://127.0.0.1:8701/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
@@ -127,8 +127,8 @@ print('  PASS: non-empty')
 
 
 echo ""
-echo "=== NAR (FastAPI, port 8002) ==="
-raw=$(curl -s http://127.0.0.1:8002/v1/audio/transcriptions \
+echo "=== NAR (FastAPI, port 8702) ==="
+raw=$(curl -s http://127.0.0.1:8702/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=nar")
@@ -144,8 +144,8 @@ print('  PASS: non-empty')
 " "${raw}"
 
 echo ""
-echo "=== Plus — speaker attribution on multi-speaker audio (port 8001) ==="
-raw=$(curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+echo "=== Plus — speaker attribution on multi-speaker audio (port 8701) ==="
+raw=$(curl -s http://127.0.0.1:8701/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \

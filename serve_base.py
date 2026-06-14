@@ -1,6 +1,6 @@
 """
 serve_base.py — Chunking proxy for granite-speech-4.1-2b (llama-server backend).
-Listens on :9797. Forwards to llama-server on :19797.
+Listens on :8700. Forwards to llama-server on :18700.
 """
 import asyncio, io, os, random
 import numpy as np
@@ -13,8 +13,8 @@ import hmac
 from contextlib import asynccontextmanager
 
 _API_KEY           = os.environ.get("LLAMA_API_KEY", "")
-LLAMA_INTERNAL_URL = "http://127.0.0.1:19797/v1/audio/transcriptions"
-LLAMA_HEALTH_URL   = "http://127.0.0.1:19797/health"
+LLAMA_INTERNAL_URL = "http://127.0.0.1:18700/v1/audio/transcriptions"
+LLAMA_HEALTH_URL   = "http://127.0.0.1:18700/health"
 MAX_CHUNK_S        = float(os.environ.get("LLAMA_CHUNK_MAX_S",       "14"))
 MIN_SPLIT_S        = float(os.environ.get("LLAMA_CHUNK_MIN_SPLIT_S",  "5"))
 BACKOFF_MIN        = float(os.environ.get("LLAMA_BACKOFF_MIN_S",      "5"))

@@ -1,11 +1,11 @@
 """
 serve_plus_proxy.py — Chunking proxy for granite-speech-4.1-2b-plus.
-Listens on :8001 (external). Forwards chunks to serve_plus on :18001 (internal).
+Listens on :8701 (external). Forwards chunks to serve_plus on :18701 (internal).
 
 Architecture:
-  client → :8001  serve_plus_proxy.py  (FastAPI, this file)
+  client → :8701  serve_plus_proxy.py  (FastAPI, this file)
                       ↓  chunks ≤ 14 s, sequential
-                  :18001  serve_plus.py (internal, loads model)
+                  :18701  serve_plus.py (internal, loads model)
 
 Prompt modes (pass via the `prompt` form field — same strings as serve_plus.py):
   Plain ASR:   chunks stitched with a space.
@@ -26,7 +26,7 @@ Speaker-aware chunking:
 
 Env vars:
   GRANITE_API_KEY              — shared with serve_plus; Bearer auth.
-  PLUS_INTERNAL_URL            — URL of internal serve_plus (default :18001).
+  PLUS_INTERNAL_URL            — URL of internal serve_plus (default :18701).
   PLUS_INTERNAL_HEALTH_URL     — health endpoint of internal serve_plus.
   PLUS_CHUNK_MAX_S             — max chunk length in seconds (default 14).
   PLUS_CHUNK_MIN_SPLIT_S       — min audio before looking for a split (default 5).
@@ -53,8 +53,8 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 _API_KEY                     = os.environ.get("GRANITE_API_KEY", "")
-PLUS_INTERNAL_URL            = os.environ.get("PLUS_INTERNAL_URL",        "http://127.0.0.1:18001/v1/audio/transcriptions")
-PLUS_HEALTH_URL              = os.environ.get("PLUS_INTERNAL_HEALTH_URL", "http://127.0.0.1:18001/health")
+PLUS_INTERNAL_URL            = os.environ.get("PLUS_INTERNAL_URL",        "http://127.0.0.1:18701/v1/audio/transcriptions")
+PLUS_HEALTH_URL              = os.environ.get("PLUS_INTERNAL_HEALTH_URL", "http://127.0.0.1:18701/health")
 MAX_CHUNK_S                  = float(os.environ.get("PLUS_CHUNK_MAX_S",              "14"))
 MIN_SPLIT_S                  = float(os.environ.get("PLUS_CHUNK_MIN_SPLIT_S",         "5"))
 BACKOFF_MIN                  = float(os.environ.get("PLUS_BACKOFF_MIN_S",             "5"))

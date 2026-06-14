@@ -5,13 +5,13 @@
 #   docker compose up --build
 #
 # Endpoints (accessible from host):
-#   http://localhost:9797  — base model (llama.cpp, Q8_0 GGUF)
-#   http://localhost:8001  — plus model proxy (chunking, timestamps, speaker stitching)
-#   http://localhost:8002  — NAR model  (FastAPI, bfloat16)
+#   http://localhost:8700  — base model (llama.cpp, Q8_0 GGUF)
+#   http://localhost:8701  — plus model proxy (chunking, timestamps, speaker stitching)
+#   http://localhost:8702  — NAR model  (FastAPI, bfloat16)
 #
 # Internal (loopback only, not exposed to clients):
-#   http://localhost:19797 — llama-server (base model backend)
-#   http://localhost:18001 — plus model backend (loaded via PyTorch)
+#   http://localhost:18700 — llama-server (base model backend)
+#   http://localhost:18701 — plus model backend (loaded via PyTorch)
 #
 # All endpoints serve POST /v1/audio/transcriptions (OpenAI-compatible).
 # GET /health requires no auth.
@@ -26,18 +26,18 @@ services:
   # Note: llama.cpp images are linux/amd64 only — no arm64 build is published.
   # On Apple Silicon, run granite-base natively instead:
   #   llama-server -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
-  #     --port 9797 --host 127.0.0.1 --api-key $LLAMA_API_KEY
+  #     --port 18700 --host 127.0.0.1 --api-key $LLAMA_API_KEY
   # To force Rosetta emulation on Apple Silicon, add: platform: linux/amd64
   granite-base:
     image: ghcr.io/ggml-org/llama.cpp:server
     platform: linux/amd64
     command: >
       -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0
-      --port 9797
+      --port 8700
       --host 0.0.0.0
       --api-key ${LLAMA_API_KEY:-}
     ports:
-      - "127.0.0.1:9797:9797"
+      - "127.0.0.1:8700:8700"
     environment:
       - LLAMA_API_KEY=${LLAMA_API_KEY:-}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -46,23 +46,23 @@ services:
       - llama_cache:/root/.cache/llama.cpp
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:9797/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8700/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 60s
 
   # ── Backend 2a: plus model (autoregressive, speaker diarisation) ──────────
-  # Internal service — not exposed to the host.  The proxy below (port 8001) is
+  # Internal service — not exposed to the host.  The proxy below (port 8701) is
   # the public-facing endpoint.  Reachable within the Docker network as
-  # http://granite-plus:18001.
+  # http://granite-plus:18701.
   granite-plus:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
-    command: uvicorn serve_plus:app --host 0.0.0.0 --port 18001
+    command: uvicorn serve_plus:app --host 0.0.0.0 --port 18701
     environment:
       - GRANITE_API_KEY=${GRANITE_API_KEY:-}
       - PLUS_MAX_NEW_TOKENS=${PLUS_MAX_NEW_TOKENS:-4096}
@@ -72,14 +72,14 @@ services:
       - hf_cache:/cache/huggingface
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:18001/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:18701/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 120s
 
   # ── Backend 2a (proxy): chunking proxy for the plus model ─────────────────
-  # Public-facing on :8001.  Splits long audio into ≤14 s chunks, forwards
+  # Public-facing on :8701.  Splits long audio into ≤14 s chunks, forwards
   # each to the internal plus model, and stitches results — unwrapping
   # [T:N] timestamps and remapping [Speaker N]: labels across chunk boundaries.
   granite-plus-proxy:
@@ -88,19 +88,19 @@ services:
       dockerfile: Dockerfile
       args:
         PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
-    command: uvicorn serve_plus_proxy:app --host 0.0.0.0 --port 8001
+    command: uvicorn serve_plus_proxy:app --host 0.0.0.0 --port 8701
     ports:
-      - "127.0.0.1:8001:8001"
+      - "127.0.0.1:8701:8701"
     environment:
       - GRANITE_API_KEY=${GRANITE_API_KEY:-}
-      - PLUS_INTERNAL_URL=http://granite-plus:18001/v1/audio/transcriptions
-      - PLUS_INTERNAL_HEALTH_URL=http://granite-plus:18001/health
+      - PLUS_INTERNAL_URL=http://granite-plus:18701/v1/audio/transcriptions
+      - PLUS_INTERNAL_HEALTH_URL=http://granite-plus:18701/health
     depends_on:
       granite-plus:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8701/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -113,9 +113,9 @@ services:
       dockerfile: Dockerfile
       args:
         PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
-    command: uvicorn serve_nar:app --host 0.0.0.0 --port 8002
+    command: uvicorn serve_nar:app --host 0.0.0.0 --port 8702
     ports:
-      - "127.0.0.1:8002:8002"
+      - "127.0.0.1:8702:8702"
     environment:
       - GRANITE_API_KEY=${GRANITE_API_KEY:-}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -124,7 +124,7 @@ services:
       - hf_cache:/cache/huggingface
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8002/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8702/health"]
       interval: 30s
       timeout: 5s
       retries: 3

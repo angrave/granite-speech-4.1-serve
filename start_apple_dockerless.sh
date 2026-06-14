@@ -219,11 +219,11 @@ trap cleanup INT TERM
 
 echo ""
 echo "Starting servers (logs: base.log, plus.log, nar.log — use 'tail -f *.log' to monitor)"
-echo "  :19797 granite-base-llama  (llama.cpp + Metal, internal)"
-echo "  :9797  granite-base        (chunking proxy)"
-echo "  :18001 granite-plus        (PyTorch + MPS, internal)"
-echo "  :8001  granite-plus-proxy  (chunking proxy with timestamp/speaker stitching)"
-echo "  :8002  granite-nar         (PyTorch + MPS)"
+echo "  :18700 granite-base-llama  (llama.cpp + Metal, internal)"
+echo "  :8700  granite-base        (chunking proxy)"
+echo "  :18701 granite-plus        (PyTorch + MPS, internal)"
+echo "  :8701  granite-plus-proxy  (chunking proxy with timestamp/speaker stitching)"
+echo "  :8702  granite-nar         (PyTorch + MPS)"
 echo ""
 echo "Note: models are downloaded from HuggingFace on first run (several GB each)."
 echo "Press Ctrl+C to stop all servers."
@@ -234,36 +234,36 @@ export DYLD_LIBRARY_PATH="$(dirname "$LLAMA_SERVER")${DYLD_LIBRARY_PATH:+:$DYLD_
 
 "$LLAMA_SERVER" \
   -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
-  --port 19797 --host 127.0.0.1 \
+  --port 18700 --host 127.0.0.1 \
   --api-key "$LLAMA_API_KEY" \
   >> "$SCRIPT_DIR/base.log" 2>&1 &
 PIDS+=($!); NAMES+=("granite-base-llama"); LOGS+=("base.log")
 
-echo "Waiting for llama-server on :19797..."
+echo "Waiting for llama-server on :18700..."
 for _ in $(seq 1 60); do
-  curl -sf http://127.0.0.1:19797/health > /dev/null 2>&1 && break
+  curl -sf http://127.0.0.1:18700/health > /dev/null 2>&1 && break
   sleep 2
 done
 
-uvicorn serve_base:app --port 9797 --host 127.0.0.1 \
+uvicorn serve_base:app --port 8700 --host 127.0.0.1 \
   >> "$SCRIPT_DIR/base.log" 2>&1 &
 PIDS+=($!); NAMES+=("granite-base"); LOGS+=("base.log")
 
-uvicorn serve_plus:app --port 18001 --host 127.0.0.1 \
+uvicorn serve_plus:app --port 18701 --host 127.0.0.1 \
   >> "$SCRIPT_DIR/plus.log" 2>&1 &
 PIDS+=($!); NAMES+=("granite-plus"); LOGS+=("plus.log")
 
-echo "Waiting for granite-plus model on :18001..."
+echo "Waiting for granite-plus model on :18701..."
 for _ in $(seq 1 90); do
-  curl -sf http://127.0.0.1:18001/health > /dev/null 2>&1 && break
+  curl -sf http://127.0.0.1:18701/health > /dev/null 2>&1 && break
   sleep 2
 done
 
-uvicorn serve_plus_proxy:app --port 8001 --host 127.0.0.1 \
+uvicorn serve_plus_proxy:app --port 8701 --host 127.0.0.1 \
   >> "$SCRIPT_DIR/plus.log" 2>&1 &
 PIDS+=($!); NAMES+=("granite-plus-proxy"); LOGS+=("plus.log")
 
-uvicorn serve_nar:app --port 8002 --host 127.0.0.1 \
+uvicorn serve_nar:app --port 8702 --host 127.0.0.1 \
   >> "$SCRIPT_DIR/nar.log" 2>&1 &
 PIDS+=($!); NAMES+=("granite-nar"); LOGS+=("nar.log")
 

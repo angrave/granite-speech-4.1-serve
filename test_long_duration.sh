@@ -141,7 +141,7 @@ PYEOF
 # ── Health check ─────────────────────────────────────────────────────────────────
 
 echo "=== Health check ==="
-for port in 9797 8001 8002; do
+for port in 8700 8701 8702; do
   result=$(curl -sf "http://127.0.0.1:${port}/health" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','?'), '| auth:', d.get('auth','n/a'))" \
     2>/dev/null || echo "UNREACHABLE")
@@ -151,11 +151,11 @@ echo ""
 
 # ── Send to each service ──────────────────────────────────────────────────────────
 
-run_test "Base — llama.cpp chunking proxy" 9797 "$LLAMA_API_KEY" \
+run_test "Base — llama.cpp chunking proxy" 8700 "$LLAMA_API_KEY" \
   -F "model=ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
   -F "prompt=transcribe with punctuation and capitalization."
 
-run_test "Plus — plain ASR" 8001 "$GRANITE_API_KEY" \
+run_test "Plus — plain ASR" 8701 "$GRANITE_API_KEY" \
   -F "model=plus" \
   --form-string "prompt=<|audio|> can you transcribe the speech into a written format?"
 
@@ -261,11 +261,11 @@ PYEOF
   echo ""
 }
 
-run_test_timestamps "Plus — timestamps (monotone check)" 8001 "$GRANITE_API_KEY" \
+run_test_timestamps "Plus — timestamps (monotone check)" 8701 "$GRANITE_API_KEY" \
   -F "model=plus" \
   --form-string "prompt=<|audio|> Timestamps: Transcribe the speech. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]"
 
-run_test "NAR" 8002 "$GRANITE_API_KEY" \
+run_test "NAR" 8702 "$GRANITE_API_KEY" \
   -F "model=nar"
 
 echo "=== Done ==="
