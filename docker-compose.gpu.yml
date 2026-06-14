@@ -5,7 +5,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 
 services:
-  granite-base:
+  llama-base:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
     deploy:
       resources:

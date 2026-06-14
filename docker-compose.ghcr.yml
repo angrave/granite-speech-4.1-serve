@@ -5,6 +5,9 @@
 # GHCR_TAG is set by start_ghcr.sh:  latest (CPU)  or  cuda (NVIDIA GPU)
 
 services:
+  granite-base:
+    image: ghcr.io/angrave/granite-speech-4.1-serve:${GHCR_TAG:-latest}
+
   granite-plus:
     image: ghcr.io/angrave/granite-speech-4.1-serve:${GHCR_TAG:-latest}
 
