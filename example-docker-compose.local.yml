@@ -1,5 +1,5 @@
 services:
-  granite-plus:
+  granite-plus-proxy:
     ports:
       - "8001:8001"
   granite-nar:

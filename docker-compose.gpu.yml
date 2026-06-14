@@ -24,6 +24,8 @@ services:
               count: 1
               capabilities: [gpu]
 
+  # granite-plus-proxy is a pure HTTP proxy — no GPU required.
+
   granite-nar:
     deploy:
       resources:

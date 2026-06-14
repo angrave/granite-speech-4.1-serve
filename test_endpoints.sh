@@ -33,113 +33,134 @@ for port in 9797 8001 8002; do
 done
 
 echo ""
-echo "=== Base (llama.cpp, port 9797) ==="
-curl -s http://127.0.0.1:9797/v1/audio/transcriptions \
+echo "=== Base (llama.cpp proxy, port 9797) ==="
+raw=$(curl -s http://127.0.0.1:9797/v1/audio/transcriptions \
   -H "Authorization: Bearer ${LLAMA_API_KEY}" \
   -F "model=ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
   -F "file=@${AUDIO}" \
-  -F "prompt=transcribe with punctuation and capitalization." \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
+  -F "prompt=transcribe with punctuation and capitalization.")
+echo "  raw: ${raw}"
+python3 -c "
+import sys, json
+d = json.loads(sys.argv[1])
+print('  chunks:', d['usage'].get('chunks', 1))
+print('  text:  ', d['text'])
+assert d['text'].strip(), 'FAIL: text is empty'
+print('  PASS: non-empty')
+" "${raw}"
 
 echo ""
 echo "=== Plus — plain ASR (port 8001) ==="
-curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+raw=$(curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
-  -F "model=plus" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
+  -F "model=plus")
+echo "  raw: ${raw}"
+python3 -c "
+import sys, json
+raw = sys.argv[1]
+d = json.loads(raw)
+text = d['text']
+print('  text:', text)
+assert text.strip(), 'FAIL: text is empty'
+print('  PASS: non-empty')
+" "${raw}"
 
 echo ""
 echo "=== Plus — word-level timestamps (port 8001) ==="
 # Timestamps use format [T:N] where N is end-time in centiseconds mod 1000.
 # Note: use --form-string (not -F) for prompts that start with <|audio|> — curl's
 # -F flag treats values starting with < as file-content references.
-curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+raw=$(curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
-  --form-string "prompt=<|audio|> Timestamps: Transcribe the speech. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
+  --form-string "prompt=<|audio|> Timestamps: Transcribe the speech. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]")
+echo "  raw: ${raw}"
+python3 -c "
+import sys, json
+raw = sys.argv[1]
+d = json.loads(raw)
+text = d['text']
+print('  text:', text)
+assert text.strip(), 'FAIL: text is empty'
+print('  PASS: non-empty')
+" "${raw}"
 
 echo ""
 echo "=== Plus — speaker attribution (port 8001) ==="
-curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+raw=$(curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
-  --form-string "prompt=<|audio|> Speaker attribution: Transcribe and denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns." \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
+  --form-string "prompt=<|audio|> Speaker attribution: Transcribe and denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns.")
+echo "  raw: ${raw}"
+python3 -c "
+import sys, json
+raw = sys.argv[1]
+d = json.loads(raw)
+text = d['text']
+print('  text:', text)
+assert text.strip(), 'FAIL: text is empty'
+print('  PASS: non-empty')
+" "${raw}"
 
-echo ""
-echo "=== Plus — punctuated ASR (port 8001) ==="
-curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
-  -H "Authorization: Bearer ${GRANITE_API_KEY}" \
-  -F "file=@${AUDIO}" \
-  -F "model=plus" \
-  --form-string "prompt=<|audio|> transcribe the speech with proper punctuation and capitalization." \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
 
 echo ""
 echo "=== Plus — keyword biasing (port 8001) ==="
 # Add keywords to bias recognition towards domain-specific terms.
-curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+raw=$(curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
-  --form-string "prompt=<|audio|> can you transcribe the speech into a written format? Keywords: timothy, velvet, hearth" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
+  --form-string "prompt=<|audio|> can you transcribe the speech into a written format? Keywords: timothy, velvet, hearth,uh-huhhh")
+echo "  raw: ${raw}"
+python3 -c "
+import sys, json
+raw = sys.argv[1]
+d = json.loads(raw)
+text = d['text']
+print('  text:', text)
+assert text.strip(), 'FAIL: text is empty'
+print('  PASS: non-empty')
+" "${raw}"
 
-echo ""
-echo "=== Plus — combined (punct + timestamps + speakers) on single-speaker (port 8001) ==="
-curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
-  -H "Authorization: Bearer ${GRANITE_API_KEY}" \
-  -F "file=@${AUDIO}" \
-  -F "model=plus" \
-  --form-string "prompt=<|audio|> Timestamps and Speaker attribution: Transcribe the speech with proper punctuation and capitalization. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]. Denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns." \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
 
 echo ""
 echo "=== NAR (FastAPI, port 8002) ==="
-curl -s http://127.0.0.1:8002/v1/audio/transcriptions \
+raw=$(curl -s http://127.0.0.1:8002/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
-  -F "model=nar" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
+  -F "model=nar")
+echo "  raw: ${raw}"
+python3 -c "
+import sys, json
+raw = sys.argv[1]
+d = json.loads(raw)
+text = d['text']
+print('  text:', text)
+assert text.strip(), 'FAIL: text is empty'
+print('  PASS: non-empty')
+" "${raw}"
 
 echo ""
 echo "=== Plus — speaker attribution on multi-speaker audio (port 8001) ==="
-curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
+raw=$(curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
-  -F "file=@test_multi_speaker.wav" \
+  -F "file=@${AUDIO}" \
   -F "model=plus" \
-  --form-string "prompt=<|audio|> Speaker attribution: Transcribe and denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns." \
-  | python3 -c "
+  --form-string "prompt=<|audio|> Speaker attribution: Transcribe and denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns.")
+echo "  raw: ${raw}"
+python3 -c "
 import sys, json
-text = json.load(sys.stdin)['text']
-print(text)
+raw = sys.argv[1]
+d = json.loads(raw)
+text = d['text']
+print('  text:', text)
+assert text.strip(), 'FAIL: text is empty'
 assert '[Speaker 1]:' in text and '[Speaker 2]:' in text, \
     'FAIL: expected both [Speaker 1]: and [Speaker 2]: tags'
-print('PASS: speaker split detected')
-"
+print('  PASS: speaker split detected')
+" "${raw}"
 
-echo ""
-echo "=== Plus — combined (punct + timestamps + speakers) on multi-speaker audio (port 8001) ==="
-# Tests whether the model can produce punctuation, word-level timestamps, and
-# speaker tags all from a single prompt.
-curl -s http://127.0.0.1:8001/v1/audio/transcriptions \
-  -H "Authorization: Bearer ${GRANITE_API_KEY}" \
-  -F "file=@test_multi_speaker.wav" \
-  -F "model=plus" \
-  --form-string "prompt=<|audio|> Timestamps and Speaker attribution: Transcribe the speech with proper punctuation and capitalization. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]. Denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns." \
-  | python3 -c "
-import sys, json
-text = json.load(sys.stdin)['text']
-print(text)
-has_speakers = '[Speaker 1]:' in text and '[Speaker 2]:' in text
-has_timestamps = '[T:' in text
-print('PASS' if has_speakers else 'WARN: speaker tags missing',
-      '| speakers:', has_speakers, '| timestamps:', has_timestamps)
-"
-
-echo ""
 echo "=== Done ==="

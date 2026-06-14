@@ -4,9 +4,39 @@ OpenAI-compatible speech-to-text API server for [IBM Granite Speech 4.1-2B](http
 
 | Port | Service | Model | Notes |
 |------|---------|-------|-------|
-| 9797 | `granite-base` | `granite-speech-4.1-2b` (Q8_0 GGUF) | llama.cpp, fast, punctuated output |
-| 8001 | `granite-plus` | `granite-speech-4.1-2b-plus` | FastAPI, timestamps + speaker diarization |
-| 8002 | `granite-nar` | `granite-speech-4.1-2b-nar` | FastAPI, non-autoregressive, fastest |
+| 9797 | `granite-base` | `granite-speech-4.1-2b` (Q8_0 GGUF) | Chunking proxy → llama-server on :19797; splits audio > 14 s at word boundaries |
+| 19797 | _(internal)_ | — | llama-server; loopback only |
+| 8001 | `granite-plus-proxy` | `granite-speech-4.1-2b-plus` | Chunking proxy → model on :18001; timestamps + speaker stitching across chunks |
+| 18001 | _(internal)_ | — | Plus model backend (PyTorch); loopback only |
+| 8002 | `granite-nar` | `granite-speech-4.1-2b-nar` | Non-autoregressive, fastest |
+
+### Long-audio support
+
+Both public ports (9797 and 8001) are **chunking proxies** that handle arbitrarily long audio:
+
+- Audio is split at word-boundary silences into chunks ≤ 14 s, forwarded sequentially to the backend, and stitched back together.
+- **Base (9797):** text chunks are concatenated with a space.
+- **Plus (8001):** three stitching modes depending on the prompt:
+  - *Plain ASR* — text concatenation.
+  - *Timestamps* — `[T:N]` values (centiseconds mod 1000 per model design) are unwrapped into a globally-monotone timeline across all chunks.
+  - *Speaker attribution* — `[Speaker N]:` labels are remapped at chunk boundaries to prevent phantom speaker flips.
+  - *Combined* — timestamp unwrapping applied first, then speaker remapping.
+
+---
+
+## Performance
+
+Measured on **Apple M3 Ultra** (MPS) with `start_apple_dockerless.sh`, 33-minute
+looped speech audio (226 chunks of ≤ 14 s each).
+
+| Backend | Mode | Speed | Words | Chunks |
+|---------|------|-------|-------|--------|
+| Base :9797 | Plain ASR (punctuated) | **31.6× realtime** (62.7 s) | 4 437 (134 wpm) | 226 |
+| Plus :8001 | Plain ASR | **15.0× realtime** (131.9 s) | 4 574 (139 wpm) | 226 |
+| Plus :8001 | Word timestamps | **3.4× realtime** (582.7 s) | 5 424 tags, monotone [118..197951] cs | 226 |
+
+"Speed" = audio duration ÷ wall-clock processing time (higher is faster).
+Timestamps mode is slower because the model emits ~3 tokens per word instead of ~1.
 
 ---
 
@@ -67,7 +97,7 @@ curl http://localhost:8001/v1/audio/transcriptions \
   --form-string "prompt=<|audio|> Timestamps: Transcribe the speech. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]"
 ```
 
-Timestamp values wrap at 1000 centiseconds (model design). The plus model does not reliably produce punctuation or capitalization regardless of prompt wording; use the base model (port 9797) for punctuated output.
+Timestamp values in raw model output wrap at 1000 centiseconds (model design); the proxy unwraps them into globally-monotone values across all chunks. The plus model does not reliably produce punctuation or capitalization regardless of prompt wording; use the base model (port 9797) for punctuated output.
 
 ---
 
@@ -79,6 +109,9 @@ Timestamp values wrap at 1000 centiseconds (model design). The plus model does n
 | `LLAMA_API_KEY` | _(unset = no auth)_ | Bearer token for the llama.cpp base server |
 | `GRANITE_SYSTEM_PROMPT` | IBM system prompt | Set to `""` to disable the system prompt |
 | `HF_HOME` | `/cache/huggingface` | HuggingFace model cache directory |
+| `PLUS_MAX_NEW_TOKENS` | `4096` | Max output tokens per chunk for the plus model (~3700 words) |
+| `PLUS_INTERNAL_URL` | `http://127.0.0.1:18001/v1/audio/transcriptions` | Plus proxy → model URL (set automatically in Docker) |
+| `PLUS_CHUNK_MAX_S` | `14` | Max chunk length in seconds for the plus proxy |
 
 ---
 
@@ -132,7 +165,9 @@ Python 3.10+ is required (the NAR model's remote code uses Python 3.10+ union-ty
 
 Server output is written to `base.log`, `plus.log`, and `nar.log` in the repo root. Run `tail -f *.log` in a second terminal to monitor startup. Models are downloaded from HuggingFace on first run (several GB each); subsequent starts load from cache.
 
-Press `Ctrl-C` to stop all three servers.
+The script starts five processes: `llama-server` (:19797), `serve_base` proxy (:9797), `serve_plus` model (:18001), `serve_plus_proxy` (:8001), and `serve_nar` (:8002). The proxy on :8001 waits for the model on :18001 to be healthy before starting.
+
+Press `Ctrl-C` to stop all servers.
 
 ---
 
@@ -146,3 +181,11 @@ docker build -t granite-speech .
 docker build --build-arg PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu124 \
   -t granite-speech:cuda .
 ```
+
+# References
+The test.wav was created from TalkBank multiconversastion (4404.mp3) at https://talkbank.org/ca/access/CallHome/eng.html
+
+Linguistic Data Consortium (2008). CABank English CallHome Corpus. TalkBank. doi:10.21415/T5KP54
+Canavan, A., Graff, D., & Zipperlen, G. (1997). CALLHOME American English Speech LDC97S42. Philadelphia: Linguistic Data Consortium.
+
+

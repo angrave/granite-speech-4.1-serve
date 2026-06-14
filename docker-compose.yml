@@ -6,10 +6,14 @@
 #
 # Endpoints (accessible from host):
 #   http://localhost:9797  — base model (llama.cpp, Q8_0 GGUF)
-#   http://localhost:8001  — plus model (FastAPI, bfloat16)
+#   http://localhost:8001  — plus model proxy (chunking, timestamps, speaker stitching)
 #   http://localhost:8002  — NAR model  (FastAPI, bfloat16)
 #
-# All three serve POST /v1/audio/transcriptions (OpenAI-compatible).
+# Internal (loopback only, not exposed to clients):
+#   http://localhost:19797 — llama-server (base model backend)
+#   http://localhost:18001 — plus model backend (loaded via PyTorch)
+#
+# All endpoints serve POST /v1/audio/transcriptions (OpenAI-compatible).
 # GET /health requires no auth.
 #
 # Note: MPS is unavailable inside Docker (Linux VM).
@@ -49,28 +53,58 @@ services:
       start_period: 60s
 
   # ── Backend 2a: plus model (autoregressive, speaker diarisation) ──────────
+  # Internal service — not exposed to the host.  The proxy below (port 8001) is
+  # the public-facing endpoint.  Reachable within the Docker network as
+  # http://granite-plus:18001.
   granite-plus:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
-    command: uvicorn serve_plus:app --host 0.0.0.0 --port 8001
-    ports:
-      - "127.0.0.1:8001:8001"
+    command: uvicorn serve_plus:app --host 0.0.0.0 --port 18001
     environment:
       - GRANITE_API_KEY=${GRANITE_API_KEY:-}
+      - PLUS_MAX_NEW_TOKENS=${PLUS_MAX_NEW_TOKENS:-4096}
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HOME=/cache/huggingface
     volumes:
       - hf_cache:/cache/huggingface
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:18001/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 120s
+
+  # ── Backend 2a (proxy): chunking proxy for the plus model ─────────────────
+  # Public-facing on :8001.  Splits long audio into ≤14 s chunks, forwards
+  # each to the internal plus model, and stitches results — unwrapping
+  # [T:N] timestamps and remapping [Speaker N]: labels across chunk boundaries.
+  granite-plus-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    command: uvicorn serve_plus_proxy:app --host 0.0.0.0 --port 8001
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      - GRANITE_API_KEY=${GRANITE_API_KEY:-}
+      - PLUS_INTERNAL_URL=http://granite-plus:18001/v1/audio/transcriptions
+      - PLUS_INTERNAL_HEALTH_URL=http://granite-plus:18001/health
+    depends_on:
+      granite-plus:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # ── Backend 2b: NAR model (non-autoregressive, fastest) ──────────────────
   granite-nar:
