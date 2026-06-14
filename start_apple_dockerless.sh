@@ -20,18 +20,23 @@ info() { echo "→ $*"; }
 command -v brew &>/dev/null \
   || die "Homebrew not found. Install from https://brew.sh then re-run."
 
-# ── llama-server (brew first; source build if it lacks granite_speech support) ──
+# ── llama-server (cache → brew → release download → source build) ───────────────
 
 BREW_PREFIX="$(brew --prefix)"
-LLAMA_LOCAL="$SCRIPT_DIR/.llama_build/build/bin/llama-server"
+LLAMA_LOCAL="$SCRIPT_DIR/.llama_build/build/bin/llama-server"    # source-build cache
+LLAMA_RELEASE="$SCRIPT_DIR/.llama_build/release/llama-server"    # downloaded release cache
 
 llama_supports_granite_speech() {
   local bin="$1"
-  # Check for the granite_speech projector type string in the binary itself.
+  # Check the binary itself.
   if strings "$bin" 2>/dev/null | grep -q "granite_speech"; then
     return 0
   fi
-  # The build links granite_speech into shared dylibs (libmtmd) loaded via @rpath.
+  # Check dylibs co-located with the binary (downloaded release layout).
+  if strings "$(dirname "$bin")"/libmtmd*.dylib 2>/dev/null | grep -q "granite_speech"; then
+    return 0
+  fi
+  # The source build links granite_speech into dylibs (libmtmd) loaded via @rpath.
   # Extract the first LC_RPATH entry and check libmtmd there.
   local rpath
   rpath=$(otool -l "$bin" 2>/dev/null \
@@ -43,7 +48,10 @@ llama_supports_granite_speech() {
   return 1
 }
 
-if [[ -x "$LLAMA_LOCAL" ]] && llama_supports_granite_speech "$LLAMA_LOCAL"; then
+if [[ -x "$LLAMA_RELEASE" ]] && llama_supports_granite_speech "$LLAMA_RELEASE"; then
+  info "Using downloaded llama-server (granite_speech support confirmed)"
+  LLAMA_SERVER="$LLAMA_RELEASE"
+elif [[ -x "$LLAMA_LOCAL" ]] && llama_supports_granite_speech "$LLAMA_LOCAL"; then
   info "Using locally-built llama-server (granite_speech support confirmed)"
   LLAMA_SERVER="$LLAMA_LOCAL"
 else
@@ -58,34 +66,56 @@ else
     info "Homebrew llama-server supports granite_speech"
     LLAMA_SERVER="$BREW_BIN"
   else
-    echo "→ Homebrew llama-server lacks granite_speech support — building from source"
-    echo "  (this takes ~10 minutes on first run; result is cached in .llama_build/)"
-    if ! command -v cmake &>/dev/null; then
-      info "Installing cmake via Homebrew..."
-      brew install cmake
-    fi
-    LLAMA_SRC="$SCRIPT_DIR/.llama_build/src"
-    if [[ ! -d "$LLAMA_SRC/.git" ]]; then
-      git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LLAMA_SRC"
+    # Try downloading the pre-built release binary (saves ~10 min vs. source build).
+    RELEASE_URL="https://github.com/angrave/granite-speech-4.1-serve/releases/latest/download/llama-server-macos-arm64.tar.gz"
+    TMP_TAR=$(mktemp /tmp/llama-release-XXXXXX.tar.gz)
+    info "Downloading pre-built llama-server from GitHub Releases..."
+    if curl -fsSL --max-time 120 -o "$TMP_TAR" "$RELEASE_URL" 2>/dev/null; then
+      mkdir -p "$(dirname "$LLAMA_RELEASE")"
+      tar -xzf "$TMP_TAR" --strip-components=1 -C "$(dirname "$LLAMA_RELEASE")"
+      rm -f "$TMP_TAR"
+      chmod +x "$LLAMA_RELEASE"
+      if llama_supports_granite_speech "$LLAMA_RELEASE"; then
+        info "Downloaded llama-server supports granite_speech"
+        LLAMA_SERVER="$LLAMA_RELEASE"
+      else
+        echo "→ Downloaded binary lacks granite_speech support — building from source"
+        rm -rf "$(dirname "$LLAMA_RELEASE")"
+      fi
     else
-      info "Updating llama.cpp source..."
-      git -C "$LLAMA_SRC" pull --ff-only
+      rm -f "$TMP_TAR"
+      echo "→ Release download failed — building from source"
     fi
-    cmake -S "$LLAMA_SRC" -B "$LLAMA_SRC/build" \
-      -DGGML_METAL=ON \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DLLAMA_BUILD_TESTS=OFF \
-      -DLLAMA_BUILD_EXAMPLES=OFF \
-      -DLLAMA_BUILD_SERVER=ON \
-      > "$SCRIPT_DIR/llama_build.log" 2>&1
-    cmake --build "$LLAMA_SRC/build" --target llama-server \
-      -j"$(sysctl -n hw.logicalcpu)" \
-      >> "$SCRIPT_DIR/llama_build.log" 2>&1
-    # Copy to canonical cache location
-    mkdir -p "$(dirname "$LLAMA_LOCAL")"
-    cp "$LLAMA_SRC/build/bin/llama-server" "$LLAMA_LOCAL"
-    info "llama-server built and cached at .llama_build/build/bin/llama-server"
-    LLAMA_SERVER="$LLAMA_LOCAL"
+
+    if [[ -z "${LLAMA_SERVER:-}" ]]; then
+      echo "  (this takes ~10 minutes on first run; result is cached in .llama_build/)"
+      if ! command -v cmake &>/dev/null; then
+        info "Installing cmake via Homebrew..."
+        brew install cmake
+      fi
+      LLAMA_SRC="$SCRIPT_DIR/.llama_build/src"
+      if [[ ! -d "$LLAMA_SRC/.git" ]]; then
+        git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LLAMA_SRC"
+      else
+        info "Updating llama.cpp source..."
+        git -C "$LLAMA_SRC" pull --ff-only
+      fi
+      cmake -S "$LLAMA_SRC" -B "$LLAMA_SRC/build" \
+        -DGGML_METAL=ON \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DLLAMA_BUILD_TESTS=OFF \
+        -DLLAMA_BUILD_EXAMPLES=OFF \
+        -DLLAMA_BUILD_SERVER=ON \
+        > "$SCRIPT_DIR/llama_build.log" 2>&1
+      cmake --build "$LLAMA_SRC/build" --target llama-server \
+        -j"$(sysctl -n hw.logicalcpu)" \
+        >> "$SCRIPT_DIR/llama_build.log" 2>&1
+      # Copy to canonical cache location
+      mkdir -p "$(dirname "$LLAMA_LOCAL")"
+      cp "$LLAMA_SRC/build/bin/llama-server" "$LLAMA_LOCAL"
+      info "llama-server built and cached at .llama_build/build/bin/llama-server"
+      LLAMA_SERVER="$LLAMA_LOCAL"
+    fi
   fi
 fi
 
@@ -191,6 +221,9 @@ echo ""
 echo "Note: models are downloaded from HuggingFace on first run (several GB each)."
 echo "Press Ctrl+C to stop all servers."
 echo ""
+
+# Ensure dylibs co-located with the binary are found (needed for downloaded release builds).
+export DYLD_LIBRARY_PATH="$(dirname "$LLAMA_SERVER")${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
 "$LLAMA_SERVER" \
   -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
