@@ -28,12 +28,17 @@ LLAMA_RELEASE="$SCRIPT_DIR/.llama_build/release/llama-server"    # downloaded re
 
 llama_supports_granite_speech() {
   local bin="$1"
+  # grep -q exits as soon as it finds a match, causing strings to get SIGPIPE.
+  # With set -o pipefail that 141 exit propagates as failure even when the string
+  # was found.  Run each check in a subshell with pipefail disabled.
+  _gs_grep() { (set +o pipefail; strings "$1" 2>/dev/null | grep -q "granite_speech"); }
+
   # Check the binary itself.
-  if strings "$bin" 2>/dev/null | grep -q "granite_speech"; then
+  if _gs_grep "$bin"; then
     return 0
   fi
   # Check dylibs co-located with the binary (downloaded release layout).
-  if strings "$(dirname "$bin")"/libmtmd*.dylib 2>/dev/null | grep -q "granite_speech"; then
+  if (set +o pipefail; strings "$(dirname "$bin")"/libmtmd*.dylib 2>/dev/null | grep -q "granite_speech"); then
     return 0
   fi
   # The source build links granite_speech into dylibs (libmtmd) loaded via @rpath.
@@ -42,7 +47,7 @@ llama_supports_granite_speech() {
   rpath=$(otool -l "$bin" 2>/dev/null \
     | awk '/LC_RPATH/{f=1} f && /path /{print $2; f=0}' \
     | head -1)
-  if [[ -n "$rpath" ]] && strings "$rpath"/libmtmd*.dylib 2>/dev/null | grep -q "granite_speech"; then
+  if [[ -n "$rpath" ]] && (set +o pipefail; strings "$rpath"/libmtmd*.dylib 2>/dev/null | grep -q "granite_speech"); then
     return 0
   fi
   return 1
