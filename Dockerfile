@@ -1,4 +1,4 @@
-# Dockerfile for Granite Speech FastAPI servers (plus on port 8001, nar on port 8002).
+# Dockerfile for Granite Speech FastAPI servers (plus on port 18701, nar on port 8702).
 # Runs on CPU by default; set NVIDIA_VISIBLE_DEVICES for GPU passthrough on Linux+CUDA.
 # Note: Apple MPS is not available inside Docker (Linux VM).
 
@@ -29,5 +29,5 @@ ENV HF_HOME=/cache/huggingface
 VOLUME ["/cache/huggingface"]
 
 # Default to plus server; override CMD in docker-compose or docker run.
-EXPOSE 8001
-CMD ["uvicorn", "serve_plus:app", "--host", "0.0.0.0", "--port", "8001"]
+EXPOSE 18701
+CMD ["uvicorn", "serve_plus:app", "--host", "0.0.0.0", "--port", "18701"]

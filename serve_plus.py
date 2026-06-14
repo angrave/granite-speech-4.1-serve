@@ -1,4 +1,4 @@
-"""FastAPI server for granite-speech-4.1-2b-plus on port 8001.
+"""FastAPI server for granite-speech-4.1-2b-plus on port 18701 (internal; public proxy on 8701).
 
 OpenAI-compatible endpoint: POST /v1/audio/transcriptions
 Auth: set GRANITE_API_KEY env var to require Bearer token. Unset = no auth.
@@ -18,7 +18,7 @@ Plus-model prompt modes (pass via the `prompt` form field):
                  speaker turns."
                  Note: timestamps and speaker tags are produced reliably; punctuation/
                  capitalization is NOT — the plus model ignores that part of the prompt.
-                 Use the base model (granite-speech-4.1-2b) for punctuated output.
+                 Use the base model (granite-speech-4.1-2b) for punctuated output (port 8700).
   Keywords:     "<|audio|> can you transcribe the speech into a written format? Keywords: word1, word2"
 
 System prompt (SYSTEM_PROMPT / GRANITE_SYSTEM_PROMPT env var): optional in practice.
@@ -66,6 +66,8 @@ SYSTEM_PROMPT = os.environ.get(
     "Today's Date: December 19, 2024.\n"
     "You are Granite, developed by IBM. You are a helpful AI assistant",
 )
+
+MAX_NEW_TOKENS  = int(os.environ.get("PLUS_MAX_NEW_TOKENS", "4096"))
 
 DEFAULT_PROMPT  = "<|audio|> can you transcribe the speech into a written format?"
 PUNCT_PROMPT    = "<|audio|> transcribe the speech with proper punctuation and capitalization."
@@ -148,8 +150,11 @@ def _infer(waveform: torch.Tensor, user_content: str) -> str:
     text_input = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = processor(text=text_input, audio=waveform, device=DEVICE, return_tensors="pt")
     inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
+    audio_key = next((k for k in ("audio_values", "input_features") if k in inputs), None)
+    if audio_key:
+        print(f"[plus] input audio tensor shape: {inputs[audio_key].shape}")
     with torch.inference_mode():
-        generated = _model.generate(**inputs, max_new_tokens=800)
+        generated = _model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS)
     input_len = inputs["input_ids"].shape[1]
     return processor.tokenizer.batch_decode(generated[:, input_len:], skip_special_tokens=True)[0].strip()
 

@@ -1,11 +1,11 @@
 services:
-  granite-plus:
+  granite-plus-proxy:
     ports:
-      - "8001:8001"
+      - "8701:8701"
   granite-nar:
     ports:
-      - "8002:8002"
+      - "8702:8702"
   granite-base:
     ports:
-      - "9797:9797"
+      - "8700:8700"
 

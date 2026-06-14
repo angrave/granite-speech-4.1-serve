@@ -8,5 +8,8 @@ services:
   granite-plus:
     image: ghcr.io/angrave/granite-speech-4.1-serve:${GHCR_TAG:-latest}
 
+  granite-plus-proxy:
+    image: ghcr.io/angrave/granite-speech-4.1-serve:${GHCR_TAG:-latest}
+
   granite-nar:
     image: ghcr.io/angrave/granite-speech-4.1-serve:${GHCR_TAG:-latest}

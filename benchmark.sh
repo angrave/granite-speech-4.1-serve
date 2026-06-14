@@ -61,22 +61,22 @@ run_benchmark() {
 }
 
 run_benchmark \
-  "Base model (llama.cpp, port 9797)" \
-  "http://127.0.0.1:9797/v1/audio/transcriptions" \
+  "Base model (llama.cpp, port 8700)" \
+  "http://127.0.0.1:8700/v1/audio/transcriptions" \
   "Authorization: Bearer ${LLAMA_API_KEY}" \
   "ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
   "-F 'prompt=transcribe with punctuation and capitalization.'"
 
 run_benchmark \
-  "Plus model (FastAPI, port 8001)" \
-  "http://127.0.0.1:8001/v1/audio/transcriptions" \
+  "Plus model (FastAPI, port 8701)" \
+  "http://127.0.0.1:8701/v1/audio/transcriptions" \
   "Authorization: Bearer ${GRANITE_API_KEY}" \
   "plus" \
   ""
 
 run_benchmark \
-  "NAR model (FastAPI, port 8002)" \
-  "http://127.0.0.1:8002/v1/audio/transcriptions" \
+  "NAR model (FastAPI, port 8702)" \
+  "http://127.0.0.1:8702/v1/audio/transcriptions" \
   "Authorization: Bearer ${GRANITE_API_KEY}" \
   "nar" \
   ""

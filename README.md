@@ -4,9 +4,43 @@ OpenAI-compatible speech-to-text API server for [IBM Granite Speech 4.1-2B](http
 
 | Port | Service | Model | Notes |
 |------|---------|-------|-------|
-| 9797 | `granite-base` | `granite-speech-4.1-2b` (Q8_0 GGUF) | llama.cpp, fast, punctuated output |
-| 8001 | `granite-plus` | `granite-speech-4.1-2b-plus` | FastAPI, timestamps + speaker diarization |
-| 8002 | `granite-nar` | `granite-speech-4.1-2b-nar` | FastAPI, non-autoregressive, fastest |
+| 8700 | `granite-base` | `granite-speech-4.1-2b` (Q8_0 GGUF) | Chunking proxy → llama-server on :18700; splits audio > 14 s at word boundaries |
+| 18700 | _(internal)_ | — | llama-server; loopback only |
+| 8701 | `granite-plus-proxy` | `granite-speech-4.1-2b-plus` | Chunking proxy → model on :18701; timestamps + speaker stitching across chunks |
+| 18701 | _(internal)_ | — | Plus model backend (PyTorch); loopback only |
+| 8702 | `granite-nar` | `granite-speech-4.1-2b-nar` | Non-autoregressive, fastest |
+
+### Long-audio support
+
+Both public ports (8700 and 8701) are **chunking proxies** that handle arbitrarily long audio:
+
+- Audio is split at word-boundary silences into chunks ≤ 14 s, forwarded sequentially to the backend, and stitched back together.
+- **Base (8700):** text chunks are concatenated with a space.
+- **Plus (8701):** four stitching modes depending on the prompt:
+  - *Plain ASR* — text concatenation.
+  - *Timestamps* — `[T:N]` values (centiseconds mod 1000 per model design) are unwrapped into a globally-monotone timeline across all chunks.
+  - *Speaker attribution* — speaker-aware chunking: audio ≤ 120 s is sent as a single request so the model has full context to distinguish speakers. Audio > 120 s is split into 60 s chunks, each prefixed with short (~3 s) reference clips of each detected speaker so labels remain consistent across chunks.
+  - *Combined* — timestamp unwrapping applied first, then speaker remapping.
+
+**Model limitations (plus backend):**
+- The model assigns at most 2 speaker labels (`[Speaker 1]:` / `[Speaker 2]:`) regardless of how many distinct voices are present.
+- The combined (speaker + timestamps) prompt can cause the model to collapse similar-sounding voices (e.g. female pairs) to a single speaker label. This is a model limitation; the plain speaker-attribution prompt is more reliable for similar voices.
+
+---
+
+## Performance
+
+Measured on **Apple M3 Ultra** (MPS) with `start_apple_dockerless.sh`, 33-minute
+looped speech audio (226 chunks of ≤ 14 s each).
+
+| Backend | Mode | Speed | Words | Chunks |
+|---------|------|-------|-------|--------|
+| Base :8700 | Plain ASR (punctuated) | **31.6× realtime** (62.7 s) | 4 437 (134 wpm) | 226 |
+| Plus :8701 | Plain ASR | **15.0× realtime** (131.9 s) | 4 574 (139 wpm) | 226 |
+| Plus :8701 | Word timestamps | **3.4× realtime** (582.7 s) | 5 424 tags, monotone [118..197951] cs | 226 |
+
+"Speed" = audio duration ÷ wall-clock processing time (higher is faster).
+Timestamps mode is slower because the model emits ~3 tokens per word instead of ~1.
 
 ---
 
@@ -38,17 +72,17 @@ All three endpoints accept `multipart/form-data` with a `file` field (WAV, MP3, 
 
 ```bash
 # Basic transcription (any backend)
-curl http://localhost:8001/v1/audio/transcriptions \
+curl http://localhost:8701/v1/audio/transcriptions \
   -H "Authorization: Bearer $GRANITE_API_KEY" \
   -F file=@audio.wav
 
 # Health check (no auth required)
-curl http://localhost:8001/health
+curl http://localhost:8701/health
 ```
 
 ### Plus model prompt modes
 
-The `granite-plus` backend (port 8001) accepts an optional `prompt` field to control output style.
+The `granite-plus` backend (port 8701) accepts an optional `prompt` field to control output style.
 
 | Mode | Prompt |
 |------|--------|
@@ -61,13 +95,13 @@ The `granite-plus` backend (port 8001) accepts an optional `prompt` field to con
 When curling prompts that start with `<|audio|>`, use `--form-string` instead of `-F` (otherwise curl treats `<` as a file redirect and silently drops the value):
 
 ```bash
-curl http://localhost:8001/v1/audio/transcriptions \
+curl http://localhost:8701/v1/audio/transcriptions \
   -H "Authorization: Bearer $GRANITE_API_KEY" \
   -F file=@audio.wav \
   --form-string "prompt=<|audio|> Timestamps: Transcribe the speech. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]"
 ```
 
-Timestamp values wrap at 1000 centiseconds (model design). The plus model does not reliably produce punctuation or capitalization regardless of prompt wording; use the base model (port 9797) for punctuated output.
+Timestamp values in raw model output wrap at 1000 centiseconds (model design); the proxy unwraps them into globally-monotone values across all chunks. The plus model does not reliably produce punctuation or capitalization regardless of prompt wording; use the base model (port 8700) for punctuated output.
 
 ---
 
@@ -79,6 +113,11 @@ Timestamp values wrap at 1000 centiseconds (model design). The plus model does n
 | `LLAMA_API_KEY` | _(unset = no auth)_ | Bearer token for the llama.cpp base server |
 | `GRANITE_SYSTEM_PROMPT` | IBM system prompt | Set to `""` to disable the system prompt |
 | `HF_HOME` | `/cache/huggingface` | HuggingFace model cache directory |
+| `PLUS_MAX_NEW_TOKENS` | `4096` | Max output tokens per chunk for the plus model (~3700 words) |
+| `PLUS_INTERNAL_URL` | `http://127.0.0.1:18701/v1/audio/transcriptions` | Plus proxy → model URL (set automatically in Docker) |
+| `PLUS_CHUNK_MAX_S` | `14` | Max chunk length in seconds for plain/timestamps modes |
+| `PLUS_SPEAKER_MAX_UNCHUNKED_S` | `120` | Audio at or below this duration is sent as a single request in speaker/combined modes (avoids per-chunk speaker label drift) |
+| `PLUS_SPEAKER_CHUNK_MAX_S` | `60` | Chunk size for speaker/combined modes when audio exceeds `PLUS_SPEAKER_MAX_UNCHUNKED_S` (preamble mode) |
 
 ---
 
@@ -164,17 +203,23 @@ cp .env.example .env      # fill in GRANITE_API_KEY and LLAMA_API_KEY
 ./start_apple_dockerless.sh
 ```
 
-`start_apple_dockerless.sh` lazy-installs all dependencies on first run (llama.cpp, Python 3.11, a venv, PyTorch arm64 + MPS, and the Python requirements), then starts all three servers. The only prerequisite it does **not** auto-install:
+`start_apple_dockerless.sh` lazy-installs all dependencies on first run (Python 3.11, a venv, PyTorch arm64 + MPS, and the Python requirements), then starts all three servers. The only prerequisite it does **not** auto-install:
 
 - **Homebrew** — install from <https://brew.sh> if missing
 
 Python 3.10+ is required (the NAR model's remote code uses Python 3.10+ union-type syntax). The script auto-installs `python@3.11` via Homebrew if no suitable interpreter is found.
 
+**llama.cpp (`granite-base`):** The script checks for a suitable `llama-server` binary in this order:
+1. A previously cached binary in `.llama_build/` (instant)
+2. The Homebrew-installed `llama-server`, if it supports `granite_speech` (instant)
+3. A pre-built binary downloaded from the [latest GitHub Release](https://github.com/angrave/granite-speech-4.1-serve/releases/latest) (~seconds)
+4. A full source build from the llama.cpp `main` branch — only if all of the above fail (~10 min, cached for subsequent runs)
+
 Server output is written to `base.log`, `plus.log`, and `nar.log` in the repo root. Run `tail -f *.log` in a second terminal to monitor startup. Models are downloaded from HuggingFace on first run (several GB each); subsequent starts load from cache.
 
-Press `Ctrl-C` to stop all three servers.
+The script starts five processes: `llama-server` (:18700), `serve_base` proxy (:8700), `serve_plus` model (:18701), `serve_plus_proxy` (:8701), and `serve_nar` (:8702). The proxy on :8701 waits for the model on :18701 to be healthy before starting.
 
-> **llama.cpp version note:** The `granite-base` server (port 9797) requires a llama.cpp build that supports the `granite_speech` multimodal projector. If the Homebrew-installed version is too old you will see `unknown projector type: granite_speech` in `base.log` — the script will warn and keep the plus and NAR servers running. Build llama.cpp from source or wait for the Homebrew formula to update.
+Press `Ctrl-C` to stop all servers.
 
 ---
 
@@ -188,3 +233,11 @@ docker build -t granite-speech .
 docker build --build-arg PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu124 \
   -t granite-speech:cuda .
 ```
+
+# References
+The test.wav was created from TalkBank multiconversastion (4404.mp3) at https://talkbank.org/ca/access/CallHome/eng.html
+
+Linguistic Data Consortium (2008). CABank English CallHome Corpus. TalkBank. doi:10.21415/T5KP54
+Canavan, A., Graff, D., & Zipperlen, G. (1997). CALLHOME American English Speech LDC97S42. Philadelphia: Linguistic Data Consortium.
+
+
