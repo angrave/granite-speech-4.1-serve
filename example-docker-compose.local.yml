@@ -1,0 +1,11 @@
+services:
+  granite-plus:
+    ports:
+      - "8001:8001"
+  granite-nar:
+    ports:
+      - "8002:8002"
+  granite-base:
+    ports:
+      - "9797:9797"
+
