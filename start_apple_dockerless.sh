@@ -27,8 +27,20 @@ LLAMA_LOCAL="$SCRIPT_DIR/.llama_build/build/bin/llama-server"
 
 llama_supports_granite_speech() {
   local bin="$1"
-  # Check for the granite_speech projector type string in the binary.
-  strings "$bin" 2>/dev/null | grep -q "granite_speech"
+  # Check for the granite_speech projector type string in the binary itself.
+  if strings "$bin" 2>/dev/null | grep -q "granite_speech"; then
+    return 0
+  fi
+  # The build links granite_speech into shared dylibs (libmtmd) loaded via @rpath.
+  # Extract the first LC_RPATH entry and check libmtmd there.
+  local rpath
+  rpath=$(otool -l "$bin" 2>/dev/null \
+    | awk '/LC_RPATH/{f=1} f && /path /{print $2; f=0}' \
+    | head -1)
+  if [[ -n "$rpath" ]] && strings "$rpath"/libmtmd*.dylib 2>/dev/null | grep -q "granite_speech"; then
+    return 0
+  fi
+  return 1
 }
 
 if [[ -x "$LLAMA_LOCAL" ]] && llama_supports_granite_speech "$LLAMA_LOCAL"; then

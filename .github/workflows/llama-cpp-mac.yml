@@ -48,20 +48,35 @@ jobs:
 
       - name: Verify granite_speech support
         run: |
-          strings llama.cpp/build/bin/llama-server | grep -q "granite_speech" \
-            || (echo "ERROR: granite_speech projector not found in binary" && exit 1)
-          echo "✓ granite_speech support confirmed"
+          # The string may live in libmtmd.dylib rather than the main binary itself.
+          if strings llama.cpp/build/bin/llama-server | grep -q "granite_speech"; then
+            echo "✓ granite_speech found in llama-server binary"
+          elif strings llama.cpp/build/bin/libmtmd*.dylib 2>/dev/null | grep -q "granite_speech"; then
+            echo "✓ granite_speech found in libmtmd dylib"
+          else
+            echo "ERROR: granite_speech projector not found in binary or dylibs"
+            exit 1
+          fi
           llama.cpp/build/bin/llama-server --version
+
+      - name: Package binary and dylibs
+        run: |
+          # Bundle llama-server with the dylibs it links at @rpath.
+          # Without the dylibs the binary cannot run on another machine.
+          mkdir -p llama-server-macos-arm64
+          cp llama.cpp/build/bin/llama-server llama-server-macos-arm64/
+          cp llama.cpp/build/bin/lib*.dylib   llama-server-macos-arm64/
+          tar -czf llama-server-macos-arm64.tar.gz llama-server-macos-arm64/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: llama-server-macos-arm64
-          path: llama.cpp/build/bin/llama-server
+          path: llama-server-macos-arm64.tar.gz
           retention-days: 90
 
       - name: Attach to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: llama.cpp/build/bin/llama-server
+          files: llama-server-macos-arm64.tar.gz
