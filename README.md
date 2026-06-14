@@ -16,11 +16,15 @@ Both public ports (9797 and 8001) are **chunking proxies** that handle arbitrari
 
 - Audio is split at word-boundary silences into chunks ≤ 14 s, forwarded sequentially to the backend, and stitched back together.
 - **Base (9797):** text chunks are concatenated with a space.
-- **Plus (8001):** three stitching modes depending on the prompt:
+- **Plus (8001):** four stitching modes depending on the prompt:
   - *Plain ASR* — text concatenation.
   - *Timestamps* — `[T:N]` values (centiseconds mod 1000 per model design) are unwrapped into a globally-monotone timeline across all chunks.
-  - *Speaker attribution* — `[Speaker N]:` labels are remapped at chunk boundaries to prevent phantom speaker flips.
+  - *Speaker attribution* — speaker-aware chunking: audio ≤ 120 s is sent as a single request so the model has full context to distinguish speakers. Audio > 120 s is split into 60 s chunks, each prefixed with short (~3 s) reference clips of each detected speaker so labels remain consistent across chunks.
   - *Combined* — timestamp unwrapping applied first, then speaker remapping.
+
+**Model limitations (plus backend):**
+- The model assigns at most 2 speaker labels (`[Speaker 1]:` / `[Speaker 2]:`) regardless of how many distinct voices are present.
+- The combined (speaker + timestamps) prompt can cause the model to collapse similar-sounding voices (e.g. female pairs) to a single speaker label. This is a model limitation; the plain speaker-attribution prompt is more reliable for similar voices.
 
 ---
 
@@ -111,7 +115,9 @@ Timestamp values in raw model output wrap at 1000 centiseconds (model design); t
 | `HF_HOME` | `/cache/huggingface` | HuggingFace model cache directory |
 | `PLUS_MAX_NEW_TOKENS` | `4096` | Max output tokens per chunk for the plus model (~3700 words) |
 | `PLUS_INTERNAL_URL` | `http://127.0.0.1:18001/v1/audio/transcriptions` | Plus proxy → model URL (set automatically in Docker) |
-| `PLUS_CHUNK_MAX_S` | `14` | Max chunk length in seconds for the plus proxy |
+| `PLUS_CHUNK_MAX_S` | `14` | Max chunk length in seconds for plain/timestamps modes |
+| `PLUS_SPEAKER_MAX_UNCHUNKED_S` | `120` | Audio at or below this duration is sent as a single request in speaker/combined modes (avoids per-chunk speaker label drift) |
+| `PLUS_SPEAKER_CHUNK_MAX_S` | `60` | Chunk size for speaker/combined modes when audio exceeds `PLUS_SPEAKER_MAX_UNCHUNKED_S` (preamble mode) |
 
 ---
 

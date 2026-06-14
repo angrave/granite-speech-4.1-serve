@@ -7,3 +7,5 @@ PLAN1-InstallVerifyBenchmark.md
 PLAN1-Overview.md
 PLAN-Speaker.md
 .env
+*.mp3
+test_audio/

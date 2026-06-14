@@ -15,15 +15,27 @@ Prompt modes (pass via the `prompt` form field — same strings as serve_plus.py
                preserve consistent speaker identity.
   Combined:    timestamp unwrapping applied first, then speaker remapping.
 
+Speaker-aware chunking:
+  For audio ≤ PLUS_SPEAKER_MAX_UNCHUNKED_S (default 120s) in speakers/combined
+  mode, the full audio is sent as a single request to avoid per-chunk speaker
+  label drift.
+
+  For audio > PLUS_SPEAKER_MAX_UNCHUNKED_S in speakers/combined mode, a
+  preamble of short speaker reference clips (~3s each) is prepended to every
+  chunk so the model assigns consistent labels across chunks.
+
 Env vars:
-  GRANITE_API_KEY          — shared with serve_plus; Bearer auth.
-  PLUS_INTERNAL_URL        — URL of internal serve_plus (default :18001).
-  PLUS_INTERNAL_HEALTH_URL — health endpoint of internal serve_plus.
-  PLUS_CHUNK_MAX_S         — max chunk length in seconds (default 14).
-  PLUS_CHUNK_MIN_SPLIT_S   — min audio before looking for a split (default 5).
-  PLUS_BACKOFF_MIN_S       — retry back-off floor in seconds (default 5).
-  PLUS_BACKOFF_MAX_S       — retry back-off ceiling in seconds (default 30).
-  PLUS_MAX_RETRIES         — max retries per chunk (default 5).
+  GRANITE_API_KEY              — shared with serve_plus; Bearer auth.
+  PLUS_INTERNAL_URL            — URL of internal serve_plus (default :18001).
+  PLUS_INTERNAL_HEALTH_URL     — health endpoint of internal serve_plus.
+  PLUS_CHUNK_MAX_S             — max chunk length in seconds (default 14).
+  PLUS_CHUNK_MIN_SPLIT_S       — min audio before looking for a split (default 5).
+  PLUS_BACKOFF_MIN_S           — retry back-off floor in seconds (default 5).
+  PLUS_BACKOFF_MAX_S           — retry back-off ceiling in seconds (default 30).
+  PLUS_MAX_RETRIES             — max retries per chunk (default 5).
+  PLUS_SPEAKER_MAX_UNCHUNKED_S — max duration sent unchunked in speaker mode
+                                  (default 120).
+  PLUS_SPEAKER_CHUNK_MAX_S     — chunk size for preamble mode (default 60).
 """
 import asyncio
 import hmac
@@ -40,15 +52,26 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Security, Uploa
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-_API_KEY             = os.environ.get("GRANITE_API_KEY", "")
-PLUS_INTERNAL_URL    = os.environ.get("PLUS_INTERNAL_URL",        "http://127.0.0.1:18001/v1/audio/transcriptions")
-PLUS_HEALTH_URL      = os.environ.get("PLUS_INTERNAL_HEALTH_URL", "http://127.0.0.1:18001/health")
-MAX_CHUNK_S          = float(os.environ.get("PLUS_CHUNK_MAX_S",       "14"))
-MIN_SPLIT_S          = float(os.environ.get("PLUS_CHUNK_MIN_SPLIT_S",  "5"))
-BACKOFF_MIN          = float(os.environ.get("PLUS_BACKOFF_MIN_S",      "5"))
-BACKOFF_MAX          = float(os.environ.get("PLUS_BACKOFF_MAX_S",     "30"))
-MAX_RETRIES          = int(  os.environ.get("PLUS_MAX_RETRIES",         "5"))
-DEFAULT_PROMPT       = "<|audio|> can you transcribe the speech into a written format?"
+_API_KEY                     = os.environ.get("GRANITE_API_KEY", "")
+PLUS_INTERNAL_URL            = os.environ.get("PLUS_INTERNAL_URL",        "http://127.0.0.1:18001/v1/audio/transcriptions")
+PLUS_HEALTH_URL              = os.environ.get("PLUS_INTERNAL_HEALTH_URL", "http://127.0.0.1:18001/health")
+MAX_CHUNK_S                  = float(os.environ.get("PLUS_CHUNK_MAX_S",              "14"))
+MIN_SPLIT_S                  = float(os.environ.get("PLUS_CHUNK_MIN_SPLIT_S",         "5"))
+BACKOFF_MIN                  = float(os.environ.get("PLUS_BACKOFF_MIN_S",             "5"))
+BACKOFF_MAX                  = float(os.environ.get("PLUS_BACKOFF_MAX_S",            "30"))
+MAX_RETRIES                  = int(  os.environ.get("PLUS_MAX_RETRIES",               "5"))
+PLUS_SPEAKER_MAX_UNCHUNKED_S = float(os.environ.get("PLUS_SPEAKER_MAX_UNCHUNKED_S", "120"))
+PLUS_SPEAKER_CHUNK_MAX_S     = float(os.environ.get("PLUS_SPEAKER_CHUNK_MAX_S",      "60"))
+DEFAULT_PROMPT               = "<|audio|> can you transcribe the speech into a written format?"
+
+# Bootstrap prompt: always combined (speaker + timestamp) so we can locate
+# speaker turn boundaries in the audio for reference clip extraction.
+_BOOTSTRAP_PROMPT = (
+    "<|audio|> Timestamps and Speaker attribution: Transcribe the speech. "
+    "After each word, add a timestamp tag showing the end time in centiseconds, "
+    "e.g. hello [T:45] world [T:82]. "
+    "Denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns."
+)
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -70,6 +93,8 @@ async def lifespan(app: FastAPI):
     print(f"[plus-proxy] → plus-model at {PLUS_INTERNAL_URL}")
     print(f"[plus-proxy]   max_chunk={MAX_CHUNK_S}s  min_split={MIN_SPLIT_S}s  "
           f"backoff=[{BACKOFF_MIN},{BACKOFF_MAX}]s  max_retries={MAX_RETRIES}")
+    print(f"[plus-proxy]   speaker_max_unchunked={PLUS_SPEAKER_MAX_UNCHUNKED_S}s  "
+          f"speaker_chunk_max={PLUS_SPEAKER_CHUNK_MAX_S}s")
     yield
     await _http_client.aclose()
 
@@ -78,7 +103,7 @@ app = FastAPI(title="Granite Speech Plus (proxy)", lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — Audio utilities (mirrors serve_base.py)
+# Audio utilities (mirrors serve_base.py)
 # ---------------------------------------------------------------------------
 
 def load_audio(data: bytes, target_sr: int = 16_000) -> np.ndarray:
@@ -178,7 +203,7 @@ def chunk_audio(
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 — Timestamp stitching
+# Timestamp stitching
 # ---------------------------------------------------------------------------
 
 def parse_and_unwrap_timestamps(text: str, chunk_start_cs: int) -> str:
@@ -218,7 +243,7 @@ def stitch_with_timestamps(chunk_results: list[tuple[str, int]]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — Speaker ID stitching
+# Speaker ID stitching
 # ---------------------------------------------------------------------------
 
 def last_speaker(text: str) -> str | None:
@@ -269,7 +294,7 @@ def stitch_with_speakers(chunk_texts: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 5 — Combined: timestamps + speakers
+# Combined: timestamps + speakers
 # ---------------------------------------------------------------------------
 
 def stitch_combined(chunk_results: list[tuple[str, int]]) -> str:
@@ -300,6 +325,178 @@ def detect_mode(prompt: str) -> str:
 
 def stitch_plain(texts: list[str]) -> str:
     return " ".join(t.strip() for t in texts if t.strip())
+
+
+# ---------------------------------------------------------------------------
+# Speaker preamble helpers (Phase 2)
+# ---------------------------------------------------------------------------
+
+def parse_speaker_turns(text: str) -> list[tuple[str, int, int]]:
+    """Parse bootstrap text into (speaker_id, start_cs, end_cs) turns.
+
+    Uses [Speaker N]: tags and [T:X] timestamps to find turn boundaries.
+    """
+    turns: list[tuple[str, int, int]] = []
+    current_speaker: str | None = None
+    turn_start_cs = 0
+    last_cs = 0
+
+    for m in re.finditer(r'\[Speaker (\d+)\]:|(?:\[T:(\d+)\])', text):
+        spk = m.group(1)
+        ts  = m.group(2)
+        if spk is not None:
+            if current_speaker is not None:
+                turns.append((current_speaker, turn_start_cs, last_cs))
+            current_speaker = spk
+            turn_start_cs = last_cs
+        elif ts is not None:
+            last_cs = int(ts)
+
+    if current_speaker is not None:
+        turns.append((current_speaker, turn_start_cs, last_cs))
+
+    return turns
+
+
+def extract_ref_clips(
+    pcm: np.ndarray,
+    sr: int,
+    turns: list[tuple[str, int, int]],
+    ref_dur_s: float = 3.0,
+) -> dict[str, np.ndarray]:
+    """Extract ~ref_dur_s audio clips from the middle of each speaker's longest turn."""
+    by_speaker: dict[str, list[tuple[int, int]]] = {}
+    for spk_id, start_cs, end_cs in turns:
+        by_speaker.setdefault(spk_id, []).append((start_cs, end_cs))
+
+    ref_clips: dict[str, np.ndarray] = {}
+    ref_samples = int(ref_dur_s * sr)
+
+    for spk_id, spk_turns in by_speaker.items():
+        longest = max(spk_turns, key=lambda t: t[1] - t[0])
+        start_cs, end_cs = longest
+        dur_cs = end_cs - start_cs
+        if dur_cs <= 0:
+            continue
+        mid_cs = start_cs + dur_cs // 2
+        clip_start_cs = max(start_cs, mid_cs - 150)      # 1.5 s before mid
+        clip_end_cs   = min(end_cs, clip_start_cs + 300)  # 3 s total
+        s = int(clip_start_cs * sr / 100)
+        e = min(len(pcm), int(clip_end_cs * sr / 100))
+        e = min(e, s + ref_samples)
+        if e > s:
+            ref_clips[spk_id] = pcm[s:e]
+
+    return ref_clips
+
+
+def extract_ref_clips_no_ts(
+    pcm: np.ndarray,
+    sr: int,
+    speaker_order: list[str],
+    ref_dur_s: float = 3.0,
+) -> dict[str, np.ndarray]:
+    """Fallback: split audio evenly, extract a center clip per speaker."""
+    if not speaker_order:
+        return {}
+    ref_clips: dict[str, np.ndarray] = {}
+    ref_samples = int(ref_dur_s * sr)
+    n = len(speaker_order)
+    seg = len(pcm) // n
+    for i, spk_id in enumerate(speaker_order):
+        seg_start = i * seg
+        mid = seg_start + seg // 2
+        clip_start = max(0, mid - ref_samples // 2)
+        clip_end = min(len(pcm), clip_start + ref_samples)
+        ref_clips[spk_id] = pcm[clip_start:clip_end]
+    return ref_clips
+
+
+def compose_with_preamble(
+    chunk_pcm: np.ndarray,
+    ref_clips: dict[str, np.ndarray],
+    sr: int = 16_000,
+    silence_s: float = 0.5,
+) -> tuple[np.ndarray, float]:
+    """Prepend speaker reference clips to chunk audio.
+
+    Returns (composite_pcm, preamble_duration_s).
+    """
+    silence = np.zeros(int(silence_s * sr), dtype=np.float32)
+    parts: list[np.ndarray] = []
+    for spk_id in sorted(ref_clips.keys()):
+        parts.append(ref_clips[spk_id])
+        parts.append(silence)
+    preamble_dur_s = sum(len(p) for p in parts) / sr
+    parts.append(chunk_pcm)
+    return np.concatenate(parts), preamble_dur_s
+
+
+def strip_preamble(text: str, n_ref_speakers: int) -> str:
+    """Remove the first n_ref_speakers speaker-tagged segments."""
+    matches = list(re.finditer(r"\[Speaker \d+\]:", text))
+    if len(matches) <= n_ref_speakers:
+        return text  # not enough tags — return as-is (fallback)
+    cut_pos = matches[n_ref_speakers].start()
+    return text[cut_pos:]
+
+
+def adjust_preamble_timestamps(text: str, preamble_cs: int) -> str:
+    """Subtract preamble duration from all timestamp tags."""
+    def replace(m: re.Match) -> str:
+        n = max(0, int(m.group(1)) - preamble_cs)
+        return f"[T:{n}]"
+    return re.sub(r"\[T:(\d+)\]", replace, text)
+
+
+async def bootstrap_speaker_refs(
+    pcm: np.ndarray,
+    sr: int,
+    model: str,
+) -> dict[str, np.ndarray]:
+    """Run bootstrap to extract per-speaker reference audio clips.
+
+    Tries progressively longer bootstrap segments until ≥2 speakers are found
+    or PLUS_SPEAKER_MAX_UNCHUNKED_S is reached.  Returns a dict mapping
+    speaker_id (str) to a ~3 s PCM clip, or empty dict if bootstrap fails.
+    """
+    boot_durations: list[float] = []
+    seen: set[float] = set()
+    for d in [MAX_CHUNK_S, 20.0, 28.0, 60.0, PLUS_SPEAKER_MAX_UNCHUNKED_S]:
+        if d not in seen:
+            boot_durations.append(d)
+            seen.add(d)
+
+    for boot_dur_s in boot_durations:
+        boot_samples = min(int(boot_dur_s * sr), len(pcm))
+        boot_pcm = pcm[:boot_samples]
+        boot_wav = pcm_to_wav_bytes(boot_pcm, sr)
+
+        print(f"[plus-proxy] bootstrap: sending {len(boot_pcm)/sr:.1f}s with combined prompt")
+        result    = await _post_chunk(boot_wav, model, _BOOTSTRAP_PROMPT, -1)
+        boot_text = result.get("text", "")
+
+        # Preserve speaker order of first appearance
+        speakers: list[str] = list(dict.fromkeys(re.findall(r'\[Speaker (\d+)\]:', boot_text)))
+        print(f"[plus-proxy] bootstrap: found {len(speakers)} speaker(s): {speakers}")
+
+        if len(speakers) < 2:
+            continue
+
+        has_ts = bool(re.search(r'\[T:\d+\]', boot_text))
+        if has_ts:
+            turns = parse_speaker_turns(boot_text)
+            ref_clips = extract_ref_clips(boot_pcm, sr, turns)
+        else:
+            ref_clips = extract_ref_clips_no_ts(boot_pcm, sr, speakers)
+
+        if len(ref_clips) >= 2:
+            print(f"[plus-proxy] bootstrap: extracted {len(ref_clips)} reference clips "
+                  f"({'timestamps' if has_ts else 'even-split'})")
+            return ref_clips
+
+    print("[plus-proxy] bootstrap: could not find >=2 speakers — preamble disabled")
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -367,22 +564,80 @@ async def transcribe(
     dur_s = len(pcm) / sr
     mode  = detect_mode(prompt)
 
-    chunks = chunk_audio(pcm, sr, max_s=MAX_CHUNK_S) if dur_s > MAX_CHUNK_S \
-             else [(pcm, 0)]
+    # Phase 1: speaker/combined — skip chunking for short audio so each full
+    # recording has enough context for the model to identify multiple speakers.
+    if mode in ("speakers", "combined") and dur_s <= PLUS_SPEAKER_MAX_UNCHUNKED_S:
+        chunks = [(pcm, 0)]
+        preamble_mode = False
+        print(f"[plus-proxy] {dur_s:.1f}s audio → 1 chunk(s), mode={mode} (full audio - speaker mode)")
 
-    print(f"[plus-proxy] {dur_s:.1f}s audio → {len(chunks)} chunk(s), mode={mode}")
+    # Phase 2: speaker/combined — long audio uses smaller chunks with a
+    # speaker-reference preamble prepended to each chunk.
+    elif mode in ("speakers", "combined"):
+        chunks = chunk_audio(pcm, sr, max_s=PLUS_SPEAKER_CHUNK_MAX_S)
+        preamble_mode = True
+        print(f"[plus-proxy] {dur_s:.1f}s audio → {len(chunks)} chunk(s), mode={mode} (preamble mode)")
+
+    # Plain/timestamps: existing chunking logic unchanged.
+    else:
+        chunks = chunk_audio(pcm, sr, max_s=MAX_CHUNK_S) if dur_s > MAX_CHUNK_S \
+                 else [(pcm, 0)]
+        preamble_mode = False
+        print(f"[plus-proxy] {dur_s:.1f}s audio → {len(chunks)} chunk(s), mode={mode}")
+
+    # Phase 2a: bootstrap — extract per-speaker reference clips.
+    ref_clips: dict[str, np.ndarray] = {}
+    if preamble_mode:
+        ref_clips = await bootstrap_speaker_refs(pcm, sr, model)
+        if not ref_clips:
+            print("[plus-proxy] bootstrap failed — continuing without preamble")
 
     chunk_results: list[tuple[str, int]] = []
     for i, (chunk_pcm, start_sample) in enumerate(chunks):
-        wav_bytes = pcm_to_wav_bytes(chunk_pcm, sr)
-        result    = await _post_chunk(wav_bytes, model, prompt, i)
-        text      = result.get("text", "")
-        # samples → seconds → centiseconds (integer, truncated to chunk boundary)
-        start_cs  = (start_sample // sr) * 100
-        chunk_results.append((text, start_cs))
-        print(f"[plus-proxy] chunk {i}: start={start_cs}cs  "
-              f"len={len(chunk_pcm)/sr:.1f}s  words≈{len(text.split())}")
+        start_cs = (start_sample // sr) * 100
 
+        if preamble_mode and ref_clips:
+            # Phase 2b: prepend speaker reference audio to chunk.
+            composed_pcm, preamble_dur_s = compose_with_preamble(chunk_pcm, ref_clips, sr)
+            wav_bytes = pcm_to_wav_bytes(composed_pcm, sr)
+            result    = await _post_chunk(wav_bytes, model, prompt, i)
+            raw_text  = result.get("text", "")
+
+            # Phase 2c/2d: strip preamble output and verify speaker presence.
+            n_ref = len(ref_clips)
+            matches = list(re.finditer(r"\[Speaker \d+\]:", raw_text))
+            if len(matches) > n_ref:
+                cut_pos = matches[n_ref].start()
+                preamble_text = raw_text[:cut_pos]
+                stripped = raw_text[cut_pos:]
+                # Phase 2d: verify preamble effectiveness.
+                for spk_id in ref_clips:
+                    if f"[Speaker {spk_id}]:" not in preamble_text:
+                        print(f"[plus-proxy] WARNING: Speaker {spk_id} not detected in preamble for chunk {i}")
+            else:
+                stripped = raw_text
+                print(f"[plus-proxy] WARNING: chunk {i} had only {len(matches)} speaker tags, "
+                      f"expected >{n_ref} — preamble strip skipped")
+
+            # Phase 2e: subtract preamble duration from timestamps.
+            if mode == "combined":
+                preamble_cs = int(preamble_dur_s * 100)
+                stripped = adjust_preamble_timestamps(stripped, preamble_cs)
+
+            text = stripped
+            print(f"[plus-proxy] chunk {i}: start={start_cs}cs  "
+                  f"len={len(chunk_pcm)/sr:.1f}s  preamble={preamble_dur_s:.1f}s  words≈{len(text.split())}")
+        else:
+            wav_bytes = pcm_to_wav_bytes(chunk_pcm, sr)
+            result    = await _post_chunk(wav_bytes, model, prompt, i)
+            text      = result.get("text", "")
+            print(f"[plus-proxy] chunk {i}: start={start_cs}cs  "
+                  f"len={len(chunk_pcm)/sr:.1f}s  words≈{len(text.split())}")
+
+        chunk_results.append((text, start_cs))
+
+    # Phase 2f: stitching — existing logic works correctly with preamble because
+    # speaker labels are anchored to the reference clips across all chunks.
     if mode == "combined":
         full_text = stitch_combined(chunk_results)
     elif mode == "timestamps":
