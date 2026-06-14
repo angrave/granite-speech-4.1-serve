@@ -1,0 +1,67 @@
+name: Build llama-server (macOS arm64)
+
+# Builds llama.cpp from source on Apple Silicon with Metal enabled.
+# Produces a llama-server binary that supports the granite_speech multimodal
+# projector, which the Homebrew-packaged version currently lacks.
+#
+# The binary is attached to GitHub Releases when a release is published.
+# It is also available as a workflow artifact for 90 days on every main push.
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build llama-server (macOS arm64)
+    runs-on: macos-14   # Apple Silicon (M1) runner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone llama.cpp
+        run: git clone --depth 1 https://github.com/ggml-org/llama.cpp llama.cpp
+
+      - name: Cache CMake build
+        uses: actions/cache@v4
+        with:
+          path: llama.cpp/build
+          key: llama-cpp-mac-arm64-${{ hashFiles('llama.cpp/.git/refs/heads/main') }}
+          restore-keys: llama-cpp-mac-arm64-
+
+      - name: Configure
+        run: |
+          cmake -S llama.cpp -B llama.cpp/build \
+            -DGGML_METAL=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_SERVER=ON
+
+      - name: Build
+        run: |
+          cmake --build llama.cpp/build --target llama-server \
+            -j$(sysctl -n hw.logicalcpu)
+
+      - name: Verify granite_speech support
+        run: |
+          strings llama.cpp/build/bin/llama-server | grep -q "granite_speech" \
+            || (echo "ERROR: granite_speech projector not found in binary" && exit 1)
+          echo "✓ granite_speech support confirmed"
+          llama.cpp/build/bin/llama-server --version
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-server-macos-arm64
+          path: llama.cpp/build/bin/llama-server
+          retention-days: 90
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: llama.cpp/build/bin/llama-server

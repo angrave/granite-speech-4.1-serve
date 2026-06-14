@@ -20,18 +20,66 @@ info() { echo "→ $*"; }
 command -v brew &>/dev/null \
   || die "Homebrew not found. Install from https://brew.sh then re-run."
 
-# ── llama.cpp ───────────────────────────────────────────────────────────────────
+# ── llama-server (brew first; source build if it lacks granite_speech support) ──
 
-if ! command -v llama-server &>/dev/null; then
-  info "Installing llama.cpp via Homebrew..."
-  brew install llama.cpp
+BREW_PREFIX="$(brew --prefix)"
+LLAMA_LOCAL="$SCRIPT_DIR/.llama_build/build/bin/llama-server"
+
+llama_supports_granite_speech() {
+  local bin="$1"
+  # Check for the granite_speech projector type string in the binary.
+  strings "$bin" 2>/dev/null | grep -q "granite_speech"
+}
+
+if [[ -x "$LLAMA_LOCAL" ]] && llama_supports_granite_speech "$LLAMA_LOCAL"; then
+  info "Using locally-built llama-server (granite_speech support confirmed)"
+  LLAMA_SERVER="$LLAMA_LOCAL"
+else
+  # Try Homebrew
+  if ! command -v llama-server &>/dev/null; then
+    info "Installing llama.cpp via Homebrew..."
+    brew install llama.cpp
+  fi
+
+  BREW_BIN="$(command -v llama-server)"
+  if llama_supports_granite_speech "$BREW_BIN"; then
+    info "Homebrew llama-server supports granite_speech"
+    LLAMA_SERVER="$BREW_BIN"
+  else
+    echo "→ Homebrew llama-server lacks granite_speech support — building from source"
+    echo "  (this takes ~10 minutes on first run; result is cached in .llama_build/)"
+    if ! command -v cmake &>/dev/null; then
+      info "Installing cmake via Homebrew..."
+      brew install cmake
+    fi
+    LLAMA_SRC="$SCRIPT_DIR/.llama_build/src"
+    if [[ ! -d "$LLAMA_SRC/.git" ]]; then
+      git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LLAMA_SRC"
+    else
+      info "Updating llama.cpp source..."
+      git -C "$LLAMA_SRC" pull --ff-only
+    fi
+    cmake -S "$LLAMA_SRC" -B "$LLAMA_SRC/build" \
+      -DGGML_METAL=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DLLAMA_BUILD_TESTS=OFF \
+      -DLLAMA_BUILD_EXAMPLES=OFF \
+      -DLLAMA_BUILD_SERVER=ON \
+      > "$SCRIPT_DIR/llama_build.log" 2>&1
+    cmake --build "$LLAMA_SRC/build" --target llama-server \
+      -j"$(sysctl -n hw.logicalcpu)" \
+      >> "$SCRIPT_DIR/llama_build.log" 2>&1
+    # Copy to canonical cache location
+    mkdir -p "$(dirname "$LLAMA_LOCAL")"
+    cp "$LLAMA_SRC/build/bin/llama-server" "$LLAMA_LOCAL"
+    info "llama-server built and cached at .llama_build/build/bin/llama-server"
+    LLAMA_SERVER="$LLAMA_LOCAL"
+  fi
 fi
 
 # ── Python 3.10+ ────────────────────────────────────────────────────────────────
 # The NAR model's remote code uses Python 3.10+ union-type syntax (int | None).
 # Prefer a versioned interpreter from Homebrew; lazy-install python@3.11 if needed.
-
-BREW_PREFIX="$(brew --prefix)"
 
 find_python() {
   local dirs=("$BREW_PREFIX/bin" /usr/local/bin /usr/bin)
@@ -132,7 +180,7 @@ echo "Note: models are downloaded from HuggingFace on first run (several GB each
 echo "Press Ctrl+C to stop all servers."
 echo ""
 
-llama-server \
+"$LLAMA_SERVER" \
   -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
   --port 9797 --host 127.0.0.1 \
   --api-key "$LLAMA_API_KEY" \
