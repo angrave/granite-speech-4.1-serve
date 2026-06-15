@@ -60,7 +60,12 @@ async def lifespan(app: FastAPI):
     else:
         print("WARNING: GRANITE_API_KEY not set — server accepts unauthenticated requests")
     print(f"Loading {MODEL_ID} on {DEVICE} ...")
-    attn_impl = "flash_attention_2" if DEVICE == "cuda" else "sdpa"
+    try:
+        import flash_attn  # noqa: F401
+        _flash_available = True
+    except ImportError:
+        _flash_available = False
+    attn_impl = "flash_attention_2" if (DEVICE == "cuda" and _flash_available) else "sdpa"
     _nar_model = AutoModel.from_pretrained(
         MODEL_ID,
         trust_remote_code=True,
