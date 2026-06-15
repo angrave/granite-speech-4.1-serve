@@ -30,7 +30,7 @@ services:
   # To force Rosetta emulation on Apple Silicon, add: platform: linux/amd64
   llama-base:
     profiles: [base]
-    image: ghcr.io/ggml-org/llama.cpp:server-b9644
+    image: ghcr.io/ggml-org/llama.cpp:server
     platform: linux/amd64
     command: >
       -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0

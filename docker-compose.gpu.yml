@@ -6,7 +6,7 @@
 
 services:
   llama-base:
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b9644
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
     deploy:
       resources:
         reservations:
