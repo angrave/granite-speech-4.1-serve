@@ -98,12 +98,14 @@ else
         info "Installing cmake via Homebrew..."
         brew install cmake
       fi
+      LLAMA_CPP_TAG=b4738
       LLAMA_SRC="$SCRIPT_DIR/.llama_build/src"
       if [[ ! -d "$LLAMA_SRC/.git" ]]; then
-        git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LLAMA_SRC"
+        git clone --depth 1 --branch "$LLAMA_CPP_TAG" https://github.com/ggml-org/llama.cpp "$LLAMA_SRC"
       else
-        info "Updating llama.cpp source..."
-        git -C "$LLAMA_SRC" pull --ff-only
+        info "Pinning llama.cpp source to ${LLAMA_CPP_TAG}..."
+        git -C "$LLAMA_SRC" fetch --depth 1 origin "refs/tags/${LLAMA_CPP_TAG}"
+        git -C "$LLAMA_SRC" checkout FETCH_HEAD
       fi
       cmake -S "$LLAMA_SRC" -B "$LLAMA_SRC/build" \
         -DGGML_METAL=ON \

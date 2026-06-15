@@ -30,7 +30,7 @@ services:
   # To force Rosetta emulation on Apple Silicon, add: platform: linux/amd64
   llama-base:
     profiles: [base]
-    image: ghcr.io/ggml-org/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server-b4738
     platform: linux/amd64
     command: >
       -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0
@@ -188,5 +188,5 @@ volumes:
 #        args:
 #          PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cu124
 # 4. For the llama-base service use the CUDA image instead:
-#      image: ghcr.io/ggml-org/llama.cpp:server-cuda
+#      image: ghcr.io/ggml-org/llama.cpp:server-cuda-b9644
 #    and add the same deploy.resources block.
