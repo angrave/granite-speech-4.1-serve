@@ -40,6 +40,10 @@ fi
 : "${LLAMA_API_KEY:?LLAMA_API_KEY not set. Run: source .env}"
 : "${GRANITE_API_KEY:?GRANITE_API_KEY not set. Run: source .env}"
 
+GRANITE_BASE_DIRECT_PORT="${GRANITE_BASE_DIRECT_PORT:-8700}"
+GRANITE_PLUS_DIRECT_PORT="${GRANITE_PLUS_DIRECT_PORT:-8701}"
+GRANITE_NAR_DIRECT_PORT="${GRANITE_NAR_DIRECT_PORT:-8702}"
+
 # ── Build looped WAV ─────────────────────────────────────────────────────────────
 
 DURATION_S=$(echo "$DURATION_MIN * 60" | bc | awk '{printf "%d", $1}')
@@ -141,7 +145,7 @@ PYEOF
 # ── Health check ─────────────────────────────────────────────────────────────────
 
 echo "=== Health check ==="
-for port in 8700 8701 8702; do
+for port in "${GRANITE_BASE_DIRECT_PORT}" "${GRANITE_PLUS_DIRECT_PORT}" "${GRANITE_NAR_DIRECT_PORT}"; do
   result=$(curl -sf "http://127.0.0.1:${port}/health" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','?'), '| auth:', d.get('auth','n/a'))" \
     2>/dev/null || echo "UNREACHABLE")
@@ -151,11 +155,11 @@ echo ""
 
 # ── Send to each service ──────────────────────────────────────────────────────────
 
-run_test "Base — llama.cpp chunking proxy" 8700 "$LLAMA_API_KEY" \
+run_test "Base — llama.cpp chunking proxy" "${GRANITE_BASE_DIRECT_PORT}" "$LLAMA_API_KEY" \
   -F "model=ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
   -F "prompt=transcribe with punctuation and capitalization."
 
-run_test "Plus — plain ASR" 8701 "$GRANITE_API_KEY" \
+run_test "Plus — plain ASR" "${GRANITE_PLUS_DIRECT_PORT}" "$GRANITE_API_KEY" \
   -F "model=plus" \
   --form-string "prompt=<|audio|> can you transcribe the speech into a written format?"
 
@@ -261,11 +265,11 @@ PYEOF
   echo ""
 }
 
-run_test_timestamps "Plus — timestamps (monotone check)" 8701 "$GRANITE_API_KEY" \
+run_test_timestamps "Plus — timestamps (monotone check)" "${GRANITE_PLUS_DIRECT_PORT}" "$GRANITE_API_KEY" \
   -F "model=plus" \
   --form-string "prompt=<|audio|> Timestamps: Transcribe the speech. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]"
 
-run_test "NAR" 8702 "$GRANITE_API_KEY" \
+run_test "NAR" "${GRANITE_NAR_DIRECT_PORT}" "$GRANITE_API_KEY" \
   -F "model=nar"
 
 echo "=== Done ==="

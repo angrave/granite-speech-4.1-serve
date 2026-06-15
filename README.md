@@ -2,21 +2,21 @@
 
 OpenAI-compatible speech-to-text API server for [IBM Granite Speech 4.1-2B](https://huggingface.co/ibm-granite), exposing three backends behind a single `POST /v1/audio/transcriptions` interface.
 
-| Port | Service | Model | Notes |
-|------|---------|-------|-------|
-| 8700 | `granite-base` | `granite-speech-4.1-2b` (Q8_0 GGUF) | Chunking proxy → llama-server on :18700; splits audio > 14 s at word boundaries |
-| 18700 | _(internal)_ | — | llama-server; loopback only |
-| 8701 | `granite-plus-proxy` | `granite-speech-4.1-2b-plus` | Chunking proxy → model on :18701; timestamps + speaker stitching across chunks |
-| 18701 | _(internal)_ | — | Plus model backend (PyTorch); loopback only |
-| 8702 | `granite-nar` | `granite-speech-4.1-2b-nar` | Non-autoregressive, fastest |
+| Port (env var) | Service | Model | Notes |
+|----------------|---------|-------|-------|
+| `$GRANITE_BASE_DIRECT_PORT` (default 8700) | `granite-base` | `granite-speech-4.1-2b` (Q8_0 GGUF) | Chunking proxy → llama-server on `$GRANITE_BASE_PROXY_PORT`; splits audio > 14 s at word boundaries |
+| `$GRANITE_BASE_PROXY_PORT` (default 18700) | _(internal)_ | — | llama-server; loopback only |
+| `$GRANITE_PLUS_DIRECT_PORT` (default 8701) | `granite-plus-proxy` | `granite-speech-4.1-2b-plus` | Chunking proxy → model on `$GRANITE_PLUS_PROXY_PORT`; timestamps + speaker stitching across chunks |
+| `$GRANITE_PLUS_PROXY_PORT` (default 18701) | _(internal)_ | — | Plus model backend (PyTorch); loopback only |
+| `$GRANITE_NAR_DIRECT_PORT` (default 8702) | `granite-nar` | `granite-speech-4.1-2b-nar` | Non-autoregressive, fastest |
 
 ### Long-audio support
 
-Both public ports (8700 and 8701) are **chunking proxies** that handle arbitrarily long audio:
+Both public ports (`$GRANITE_BASE_DIRECT_PORT` and `$GRANITE_PLUS_DIRECT_PORT`) are **chunking proxies** that handle arbitrarily long audio:
 
 - Audio is split at word-boundary silences into chunks ≤ 14 s, forwarded sequentially to the backend, and stitched back together.
-- **Base (8700):** text chunks are concatenated with a space.
-- **Plus (8701):** four stitching modes depending on the prompt:
+- **Base (`$GRANITE_BASE_DIRECT_PORT`):** text chunks are concatenated with a space.
+- **Plus (`$GRANITE_PLUS_DIRECT_PORT`):** four stitching modes depending on the prompt:
   - *Plain ASR* — text concatenation.
   - *Timestamps* — `[T:N]` values (centiseconds mod 1000 per model design) are unwrapped into a globally-monotone timeline across all chunks.
   - *Speaker attribution* — speaker-aware chunking: audio ≤ 120 s is sent as a single request so the model has full context to distinguish speakers. Audio > 120 s is split into 60 s chunks, each prefixed with short (~3 s) reference clips of each detected speaker so labels remain consistent across chunks.
@@ -35,9 +35,9 @@ looped speech audio (226 chunks of ≤ 14 s each).
 
 | Backend | Mode | Speed | Words | Chunks |
 |---------|------|-------|-------|--------|
-| Base :8700 | Plain ASR (punctuated) | **31.6× realtime** (62.7 s) | 4 437 (134 wpm) | 226 |
-| Plus :8701 | Plain ASR | **15.0× realtime** (131.9 s) | 4 574 (139 wpm) | 226 |
-| Plus :8701 | Word timestamps | **3.4× realtime** (582.7 s) | 5 424 tags, monotone [118..197951] cs | 226 |
+| Base :8700 (`$GRANITE_BASE_DIRECT_PORT`) | Plain ASR (punctuated) | **31.6× realtime** (62.7 s) | 4 437 (134 wpm) | 226 |
+| Plus :8701 (`$GRANITE_PLUS_DIRECT_PORT`) | Plain ASR | **15.0× realtime** (131.9 s) | 4 574 (139 wpm) | 226 |
+| Plus :8701 (`$GRANITE_PLUS_DIRECT_PORT`) | Word timestamps | **3.4× realtime** (582.7 s) | 5 424 tags, monotone [118..197951] cs | 226 |
 
 "Speed" = audio duration ÷ wall-clock processing time (higher is faster).
 Timestamps mode is slower because the model emits ~3 tokens per word instead of ~1.
@@ -103,17 +103,17 @@ All three endpoints accept `multipart/form-data` with a `file` field (WAV, MP3, 
 
 ```bash
 # Basic transcription (any backend)
-curl http://localhost:8701/v1/audio/transcriptions \
+curl http://localhost:${GRANITE_PLUS_DIRECT_PORT:-8701}/v1/audio/transcriptions \
   -H "Authorization: Bearer $GRANITE_API_KEY" \
   -F file=@audio.wav
 
 # Health check (no auth required)
-curl http://localhost:8701/health
+curl http://localhost:${GRANITE_PLUS_DIRECT_PORT:-8701}/health
 ```
 
 ### Plus model prompt modes
 
-The `granite-plus` backend (port 8701) accepts an optional `prompt` field to control output style.
+The `granite-plus` backend (port `$GRANITE_PLUS_DIRECT_PORT`, default 8701) accepts an optional `prompt` field to control output style.
 
 | Mode | Prompt |
 |------|--------|
@@ -126,13 +126,13 @@ The `granite-plus` backend (port 8701) accepts an optional `prompt` field to con
 When curling prompts that start with `<|audio|>`, use `--form-string` instead of `-F` (otherwise curl treats `<` as a file redirect and silently drops the value):
 
 ```bash
-curl http://localhost:8701/v1/audio/transcriptions \
+curl http://localhost:${GRANITE_PLUS_DIRECT_PORT:-8701}/v1/audio/transcriptions \
   -H "Authorization: Bearer $GRANITE_API_KEY" \
   -F file=@audio.wav \
   --form-string "prompt=<|audio|> Timestamps: Transcribe the speech. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]"
 ```
 
-Timestamp values in raw model output wrap at 1000 centiseconds (model design); the proxy unwraps them into globally-monotone values across all chunks. The plus model does not reliably produce punctuation or capitalization regardless of prompt wording; use the base model (port 8700) for punctuated output.
+Timestamp values in raw model output wrap at 1000 centiseconds (model design); the proxy unwraps them into globally-monotone values across all chunks. The plus model does not reliably produce punctuation or capitalization regardless of prompt wording; use the base model (`$GRANITE_BASE_DIRECT_PORT`, default 8700) for punctuated output.
 
 ---
 
@@ -140,11 +140,11 @@ Timestamp values in raw model output wrap at 1000 centiseconds (model design); t
 
 Set `COMPOSE_PROFILES` in `.env` to control which service groups start. The three profile names map directly to the three backends:
 
-| Profile | Services started | Public port | Memory (approx.) |
-|---------|-----------------|-------------|-----------------|
-| `base` | `llama-base` + `granite-base` proxy | 8700 | ~2 GB |
-| `plus` | `granite-plus` + `granite-plus-proxy` | 8701 | ~8 GB |
-| `nar` | `granite-nar` | 8702 | ~4 GB |
+| Profile | Services started | Public port (env var) | Memory (approx.) |
+|---------|-----------------|----------------------|-----------------|
+| `base` | `llama-base` + `granite-base` proxy | 8700 (`$GRANITE_BASE_DIRECT_PORT`) | ~2 GB |
+| `plus` | `granite-plus` + `granite-plus-proxy` | 8701 (`$GRANITE_PLUS_DIRECT_PORT`) | ~8 GB |
+| `nar` | `granite-nar` | 8702 (`$GRANITE_NAR_DIRECT_PORT`) | ~4 GB |
 
 **Default (all three):**
 ```
@@ -175,10 +175,15 @@ COMPOSE_PROFILES=nar
 | `GRANITE_SYSTEM_PROMPT` | IBM system prompt | Set to `""` to disable the system prompt |
 | `HF_HOME` | `/cache/huggingface` | HuggingFace model cache directory |
 | `PLUS_MAX_NEW_TOKENS` | `4096` | Max output tokens per chunk for the plus model (~3700 words) |
-| `PLUS_INTERNAL_URL` | `http://127.0.0.1:18701/v1/audio/transcriptions` | Plus proxy → model URL (set automatically in Docker) |
+| `PLUS_INTERNAL_URL` | `http://127.0.0.1:$GRANITE_PLUS_PROXY_PORT/v1/audio/transcriptions` | Plus proxy → model URL (set automatically in Docker) |
 | `PLUS_CHUNK_MAX_S` | `14` | Max chunk length in seconds for plain/timestamps modes |
 | `PLUS_SPEAKER_MAX_UNCHUNKED_S` | `120` | Audio at or below this duration is sent as a single request in speaker/combined modes (avoids per-chunk speaker label drift) |
 | `PLUS_SPEAKER_CHUNK_MAX_S` | `60` | Chunk size for speaker/combined modes when audio exceeds `PLUS_SPEAKER_MAX_UNCHUNKED_S` (preamble mode) |
+| `GRANITE_BASE_DIRECT_PORT` | `8700` | Client-facing port for the base chunking proxy |
+| `GRANITE_BASE_PROXY_PORT` | `18700` | Internal port for llama-server (base model backend) |
+| `GRANITE_PLUS_DIRECT_PORT` | `8701` | Client-facing port for the plus chunking proxy |
+| `GRANITE_PLUS_PROXY_PORT` | `18701` | Internal port for the plus model server |
+| `GRANITE_NAR_DIRECT_PORT` | `8702` | Client-facing port for the NAR model server |
 
 ---
 
@@ -278,7 +283,7 @@ Python 3.10+ is required (the NAR model's remote code uses Python 3.10+ union-ty
 
 Server output is written to `base.log`, `plus.log`, and `nar.log` in the repo root. Run `tail -f *.log` in a second terminal to monitor startup. Models are downloaded from HuggingFace on first run (several GB each); subsequent starts load from cache.
 
-The script starts one process per active profile: `base` → `llama-server` (:18700) + `serve_base` proxy (:8700); `plus` → `serve_plus` model (:18701) + `serve_plus_proxy` (:8701); `nar` → `serve_nar` (:8702). Which profiles are active is read from `COMPOSE_PROFILES` in `.env` (default: all three). The proxy on :8701 waits for the model on :18701 to be healthy before starting.
+The script starts one process per active profile: `base` → `llama-server` (`:$GRANITE_BASE_PROXY_PORT`) + `serve_base` proxy (`:$GRANITE_BASE_DIRECT_PORT`); `plus` → `serve_plus` model (`:$GRANITE_PLUS_PROXY_PORT`) + `serve_plus_proxy` (`:$GRANITE_PLUS_DIRECT_PORT`); `nar` → `serve_nar` (`:$GRANITE_NAR_DIRECT_PORT`). Which profiles are active is read from `COMPOSE_PROFILES` in `.env` (default: all three). The plus proxy waits for the plus model to be healthy before starting. Port defaults can be overridden via the `GRANITE_*_PORT` variables in `.env`.
 
 Press `Ctrl-C` to stop all servers.
 

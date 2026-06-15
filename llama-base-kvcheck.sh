@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# llama-base-kvcheck.sh — Smoke-test the granite-speech base endpoint (port 8700)
+# llama-base-kvcheck.sh — Smoke-test the granite-speech base endpoint ($GRANITE_BASE_DIRECT_PORT)
 #
 # Tests three things:
 #   1. Short audio (≤15 s) transcribes correctly             → non-empty text
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 AUDIO="${1:-test.wav}"
-PORT=8700
+PORT="${GRANITE_BASE_DIRECT_PORT:-8700}"
 BASE="http://127.0.0.1:${PORT}"
 MODEL="ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0"
 PROMPT="transcribe with punctuation and capitalization."

@@ -225,11 +225,11 @@ trap cleanup INT TERM
 echo ""
 echo "Active profiles: $_PROFILES"
 echo "Starting servers (logs: base.log, plus.log, nar.log — use 'tail -f *.log' to monitor)"
-profile_active base && echo "  :18700 granite-base-llama  (llama.cpp + Metal, internal)"
-profile_active base && echo "  :8700  granite-base        (chunking proxy)"
-profile_active plus && echo "  :18701 granite-plus        (PyTorch + MPS, internal)"
-profile_active plus && echo "  :8701  granite-plus-proxy  (chunking proxy with timestamp/speaker stitching)"
-profile_active nar  && echo "  :8702  granite-nar         (PyTorch + MPS)"
+profile_active base && echo "  :${GRANITE_BASE_PROXY_PORT:-18700} granite-base-llama  (llama.cpp + Metal, internal)"
+profile_active base && echo "  :${GRANITE_BASE_DIRECT_PORT:-8700}  granite-base        (chunking proxy)"
+profile_active plus && echo "  :${GRANITE_PLUS_PROXY_PORT:-18701} granite-plus        (PyTorch + MPS, internal)"
+profile_active plus && echo "  :${GRANITE_PLUS_DIRECT_PORT:-8701}  granite-plus-proxy  (chunking proxy with timestamp/speaker stitching)"
+profile_active nar  && echo "  :${GRANITE_NAR_DIRECT_PORT:-8702}  granite-nar         (PyTorch + MPS)"
 echo ""
 echo "Note: models are downloaded from HuggingFace on first run (several GB each)."
 echo "Press Ctrl+C to stop all servers."
@@ -241,40 +241,40 @@ export DYLD_LIBRARY_PATH="$(dirname "$LLAMA_SERVER")${DYLD_LIBRARY_PATH:+:$DYLD_
 if profile_active base; then
   "$LLAMA_SERVER" \
     -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
-    --port 18700 --host 127.0.0.1 \
+    --port "${GRANITE_BASE_PROXY_PORT:-18700}" --host 127.0.0.1 \
     --api-key "$LLAMA_API_KEY" \
     >> "$SCRIPT_DIR/base.log" 2>&1 &
   PIDS+=($!); NAMES+=("granite-base-llama"); LOGS+=("base.log")
 
-  echo "Waiting for llama-server on :18700..."
+  echo "Waiting for llama-server on :${GRANITE_BASE_PROXY_PORT:-18700}..."
   for _ in $(seq 1 60); do
-    curl -sf http://127.0.0.1:18700/health > /dev/null 2>&1 && break
+    curl -sf "http://127.0.0.1:${GRANITE_BASE_PROXY_PORT:-18700}/health" > /dev/null 2>&1 && break
     sleep 2
   done
 
-  uvicorn serve_base:app --port 8700 --host 127.0.0.1 \
+  uvicorn serve_base:app --port "${GRANITE_BASE_DIRECT_PORT:-8700}" --host 127.0.0.1 \
     >> "$SCRIPT_DIR/base.log" 2>&1 &
   PIDS+=($!); NAMES+=("granite-base"); LOGS+=("base.log")
 fi
 
 if profile_active plus; then
-  uvicorn serve_plus:app --port 18701 --host 127.0.0.1 \
+  uvicorn serve_plus:app --port "${GRANITE_PLUS_PROXY_PORT:-18701}" --host 127.0.0.1 \
     >> "$SCRIPT_DIR/plus.log" 2>&1 &
   PIDS+=($!); NAMES+=("granite-plus"); LOGS+=("plus.log")
 
-  echo "Waiting for granite-plus model on :18701..."
+  echo "Waiting for granite-plus model on :${GRANITE_PLUS_PROXY_PORT:-18701}..."
   for _ in $(seq 1 90); do
-    curl -sf http://127.0.0.1:18701/health > /dev/null 2>&1 && break
+    curl -sf "http://127.0.0.1:${GRANITE_PLUS_PROXY_PORT:-18701}/health" > /dev/null 2>&1 && break
     sleep 2
   done
 
-  uvicorn serve_plus_proxy:app --port 8701 --host 127.0.0.1 \
+  uvicorn serve_plus_proxy:app --port "${GRANITE_PLUS_DIRECT_PORT:-8701}" --host 127.0.0.1 \
     >> "$SCRIPT_DIR/plus.log" 2>&1 &
   PIDS+=($!); NAMES+=("granite-plus-proxy"); LOGS+=("plus.log")
 fi
 
 if profile_active nar; then
-  uvicorn serve_nar:app --port 8702 --host 127.0.0.1 \
+  uvicorn serve_nar:app --port "${GRANITE_NAR_DIRECT_PORT:-8702}" --host 127.0.0.1 \
     >> "$SCRIPT_DIR/nar.log" 2>&1 &
   PIDS+=($!); NAMES+=("granite-nar"); LOGS+=("nar.log")
 fi

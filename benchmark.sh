@@ -12,6 +12,10 @@ N="${2:-3}"
 : "${LLAMA_API_KEY:?LLAMA_API_KEY not set. Run: source .env}"
 : "${GRANITE_API_KEY:?GRANITE_API_KEY not set. Run: source .env}"
 
+GRANITE_BASE_DIRECT_PORT="${GRANITE_BASE_DIRECT_PORT:-8700}"
+GRANITE_PLUS_DIRECT_PORT="${GRANITE_PLUS_DIRECT_PORT:-8701}"
+GRANITE_NAR_DIRECT_PORT="${GRANITE_NAR_DIRECT_PORT:-8702}"
+
 echo "Audio file : ${AUDIO}"
 echo "Runs each  : ${N}"
 echo "Date       : $(date)"
@@ -61,22 +65,22 @@ run_benchmark() {
 }
 
 run_benchmark \
-  "Base model (llama.cpp, port 8700)" \
-  "http://127.0.0.1:8700/v1/audio/transcriptions" \
+  "Base model (llama.cpp, port ${GRANITE_BASE_DIRECT_PORT})" \
+  "http://127.0.0.1:${GRANITE_BASE_DIRECT_PORT}/v1/audio/transcriptions" \
   "Authorization: Bearer ${LLAMA_API_KEY}" \
   "ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
   "-F 'prompt=transcribe with punctuation and capitalization.'"
 
 run_benchmark \
-  "Plus model (FastAPI, port 8701)" \
-  "http://127.0.0.1:8701/v1/audio/transcriptions" \
+  "Plus model (FastAPI, port ${GRANITE_PLUS_DIRECT_PORT})" \
+  "http://127.0.0.1:${GRANITE_PLUS_DIRECT_PORT}/v1/audio/transcriptions" \
   "Authorization: Bearer ${GRANITE_API_KEY}" \
   "plus" \
   ""
 
 run_benchmark \
-  "NAR model (FastAPI, port 8702)" \
-  "http://127.0.0.1:8702/v1/audio/transcriptions" \
+  "NAR model (FastAPI, port ${GRANITE_NAR_DIRECT_PORT})" \
+  "http://127.0.0.1:${GRANITE_NAR_DIRECT_PORT}/v1/audio/transcriptions" \
   "Authorization: Bearer ${GRANITE_API_KEY}" \
   "nar" \
   ""
