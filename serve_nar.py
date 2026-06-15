@@ -33,7 +33,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from transformers import AutoModel, AutoProcessor
 
 MODEL_ID = "ibm-granite/granite-speech-4.1-2b-nar"
-DEVICE = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
+_device_override = os.environ.get("GRANITE_NAR_DEVICE", "")
+DEVICE = _device_override if _device_override else (
+    "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
+)
 DTYPE = torch.bfloat16
 _API_KEY = os.environ.get("GRANITE_API_KEY", "")
 _bearer = HTTPBearer(auto_error=False)
