@@ -23,13 +23,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Clone llama.cpp
-        run: git clone --depth 1 https://github.com/ggml-org/llama.cpp llama.cpp
+        run: git clone --depth 1 --branch b9644 https://github.com/ggml-org/llama.cpp llama.cpp
 
       - name: Cache CMake build
         uses: actions/cache@v4
         with:
           path: llama.cpp/build
-          key: llama-cpp-mac-arm64-${{ hashFiles('llama.cpp/.git/refs/heads/main') }}
+          key: llama-cpp-mac-arm64-b9644
           restore-keys: llama-cpp-mac-arm64-
 
       - name: Configure
