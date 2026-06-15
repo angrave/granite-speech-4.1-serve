@@ -184,9 +184,12 @@ async def _post_chunk(wav_bytes, model, prompt, chunk_idx) -> dict:
 async def health():
     try:
         r = await _http_client.get(LLAMA_HEALTH_URL, timeout=5.0)
-        return r.json()
+        data = r.json()
     except Exception:
         raise HTTPException(503, "llama-server unreachable")
+    data.setdefault("model", "ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0")
+    data.setdefault("auth", "enabled" if _API_KEY else "disabled")
+    return data
 
 
 @app.post("/v1/audio/transcriptions", dependencies=[Depends(verify_key)])
