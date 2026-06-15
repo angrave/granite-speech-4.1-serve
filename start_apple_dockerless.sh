@@ -166,8 +166,8 @@ source "$VENV/bin/activate"
 # ── PyTorch — arm64 wheel includes MPS ──────────────────────────────────────────
 
 if ! python3 -c 'import torch' &>/dev/null; then
-  info "Installing torch and torchaudio (arm64 + MPS)..."
-  pip install --quiet torch torchaudio
+  info "Installing torch==2.11.0 and torchaudio==2.11.0 (arm64 + MPS)..."
+  pip install --quiet torch==2.11.0 torchaudio==2.11.0
 fi
 
 if ! python3 -c 'import torch; assert torch.backends.mps.is_available()' &>/dev/null; then
