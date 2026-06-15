@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY serve_plus.py serve_nar.py serve_plus_proxy.py serve_base.py ./
+COPY src/serve_plus.py src/serve_nar.py src/serve_plus_proxy.py src/serve_base.py ./
 
 # HuggingFace model cache — mount a named volume here to avoid re-downloading on restart.
 ENV HF_HOME=/cache/huggingface

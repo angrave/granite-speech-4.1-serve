@@ -191,7 +191,7 @@ if [[ ${FAILURES} -eq 0 ]]; then
 else
   echo -e "${RED}${FAILURES} assertion(s) failed.${NC}"
   echo "  Check output above. Common causes:"
-  echo "    - Server not fully started (retry after 'tail -f base.log' shows 'server is listening')"
+  echo "    - Server not fully started (retry after 'tail -f runtime/logs/base.log' shows 'server is listening')"
   echo "    - Bad KV cache from previous failed run (restart server and re-run)"
   echo "    - Audio file shorter than 20 s"
 fi

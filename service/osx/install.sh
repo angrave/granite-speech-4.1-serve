@@ -15,8 +15,8 @@ info() { echo "→ $*"; }
 # ── Pre-flight checks ────────────────────────────────────────────────────────
 
 [[ "$(uname -s)" == "Darwin" ]] || die "macOS only."
-[[ -f "$INSTALL_DIR/start_apple_dockerless.sh" ]] \
-  || die "start_apple_dockerless.sh not found at $INSTALL_DIR"
+[[ -f "$INSTALL_DIR/scripts/start_apple_dockerless.sh" ]] \
+  || die "scripts/start_apple_dockerless.sh not found at $INSTALL_DIR"
 [[ -f "$INSTALL_DIR/.env" ]] \
   || die ".env not found at $INSTALL_DIR — copy .env.example and fill in API keys before installing the service."
 

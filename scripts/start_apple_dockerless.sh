@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # start-services.sh — Native Apple Silicon launcher for granite-speech-4.1
 # Lazy-installs all dependencies and starts all three servers with MPS/Metal acceleration.
-# Server logs: base.log, plus.log, nar.log  (tail -f *.log to monitor)
+# Server logs: runtime/logs/{base,plus,nar}.log  (tail -f runtime/logs/*.log to monitor)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="$SCRIPT_DIR/.venv"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+VENV="$REPO_ROOT/.venv"
 
 die()  { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "→ $*"; }
@@ -26,8 +27,8 @@ command -v ffmpeg &>/dev/null \
 # ── llama-server (cache → brew → release download → source build) ───────────────
 
 BREW_PREFIX="$(brew --prefix)"
-LLAMA_LOCAL="$SCRIPT_DIR/.llama_build/build/bin/llama-server"    # source-build cache
-LLAMA_RELEASE="$SCRIPT_DIR/.llama_build/release/llama-server"    # downloaded release cache
+LLAMA_LOCAL="$REPO_ROOT/.llama_build/build/bin/llama-server"    # source-build cache
+LLAMA_RELEASE="$REPO_ROOT/.llama_build/release/llama-server"    # downloaded release cache
 
 llama_supports_granite_speech() {
   local bin="$1"
@@ -103,7 +104,7 @@ else
       fi
       LLAMA_CPP_TAG=b4738
 #      LLAMA_CPP_TAG=b9644
-      LLAMA_SRC="$SCRIPT_DIR/.llama_build/src"
+      LLAMA_SRC="$REPO_ROOT/.llama_build/src"
       if [[ ! -d "$LLAMA_SRC/.git" ]]; then
         git clone --depth 1 --branch "$LLAMA_CPP_TAG" https://github.com/ggml-org/llama.cpp "$LLAMA_SRC"
       else
@@ -117,10 +118,10 @@ else
         -DLLAMA_BUILD_TESTS=OFF \
         -DLLAMA_BUILD_EXAMPLES=OFF \
         -DLLAMA_BUILD_SERVER=ON \
-        > "$SCRIPT_DIR/llama_build.log" 2>&1
+        > "$REPO_ROOT/runtime/logs/llama_build.log" 2>&1
       cmake --build "$LLAMA_SRC/build" --target llama-server \
         -j"$(sysctl -n hw.logicalcpu)" \
-        >> "$SCRIPT_DIR/llama_build.log" 2>&1
+        >> "$REPO_ROOT/runtime/logs/llama_build.log" 2>&1
       # Copy to canonical cache location
       mkdir -p "$(dirname "$LLAMA_LOCAL")"
       cp "$LLAMA_SRC/build/bin/llama-server" "$LLAMA_LOCAL"
@@ -170,13 +171,8 @@ source "$VENV/bin/activate"
 # ── PyTorch — arm64 wheel includes MPS ──────────────────────────────────────────
 
 if ! python3 -c 'import torch' &>/dev/null; then
-<<<<<<< HEAD
   info "Installing torch==2.6.0 and torchaudio==2.6.0 (arm64 + MPS)..."
   pip install --quiet torch==2.6.0 torchaudio==2.6.0
-=======
-  info "Installing torch==2.11.0 and torchaudio==2.11.0 (arm64 + MPS)..."
-  pip install --quiet torch==2.11.0 torchaudio==2.11.0
->>>>>>> e5606fddb46f1d29d786dff2499dd3e92f6ba0b3
 fi
 
 if ! python3 -c 'import torch; assert torch.backends.mps.is_available()' &>/dev/null; then
@@ -187,19 +183,19 @@ fi
 # Re-install only when requirements.txt has changed (tracked by md5 hash).
 
 HASH_FILE="$VENV/.reqs_hash"
-CURRENT_HASH=$(md5 -q "$SCRIPT_DIR/requirements.txt")
+CURRENT_HASH=$(md5 -q "$REPO_ROOT/requirements.txt")
 if [[ ! -f "$HASH_FILE" ]] || [[ "$(<"$HASH_FILE")" != "$CURRENT_HASH" ]]; then
   info "Installing Python requirements..."
-  pip install --quiet -r "$SCRIPT_DIR/requirements.txt"
+  pip install --quiet -r "$REPO_ROOT/requirements.txt"
   echo "$CURRENT_HASH" > "$HASH_FILE"
 fi
 
 # ── Environment variables ────────────────────────────────────────────────────────
 
-if [[ -f "$SCRIPT_DIR/.env" ]]; then
+if [[ -f "$REPO_ROOT/.env" ]]; then
   set -a
   # shellcheck source=/dev/null
-  source "$SCRIPT_DIR/.env"
+  source "$REPO_ROOT/.env"
   set +a
 fi
 
@@ -218,7 +214,10 @@ profile_active() { [[ ",$_PROFILES," == *",$1,"* ]]; }
 
 # ── Launch ───────────────────────────────────────────────────────────────────────
 
-cd "$SCRIPT_DIR"
+cd "$REPO_ROOT"
+export PYTHONPATH="$REPO_ROOT/src"
+LOGDIR="$REPO_ROOT/runtime/logs"
+mkdir -p "$LOGDIR"
 
 PIDS=()
 NAMES=()
@@ -235,7 +234,7 @@ trap cleanup INT TERM
 
 echo ""
 echo "Active profiles: $_PROFILES"
-echo "Starting servers (logs: base.log, plus.log, nar.log — use 'tail -f *.log' to monitor)"
+echo "Starting servers (logs in runtime/logs/ — use 'tail -f runtime/logs/*.log' to monitor)"
 profile_active base && echo "  :${GRANITE_BASE_PROXY_PORT:-18700} granite-base-llama  (llama.cpp + Metal, internal)"
 profile_active base && echo "  :${GRANITE_BASE_DIRECT_PORT:-8700}  granite-base        (chunking proxy)"
 profile_active plus && echo "  :${GRANITE_PLUS_PROXY_PORT:-18701} granite-plus        (PyTorch + MPS, internal)"
@@ -254,8 +253,8 @@ if profile_active base; then
     -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
     --port "${GRANITE_BASE_PROXY_PORT:-18700}" --host 127.0.0.1 \
     --api-key "$LLAMA_API_KEY" \
-    >> "$SCRIPT_DIR/base.log" 2>&1 &
-  PIDS+=($!); NAMES+=("granite-base-llama"); LOGS+=("base.log")
+    >> "$LOGDIR/base.log" 2>&1 &
+  PIDS+=($!); NAMES+=("granite-base-llama"); LOGS+=("runtime/logs/base.log")
 
   echo "Waiting for llama-server on :${GRANITE_BASE_PROXY_PORT:-18700}..."
   for _ in $(seq 1 60); do
@@ -264,14 +263,14 @@ if profile_active base; then
   done
 
   uvicorn serve_base:app --port "${GRANITE_BASE_DIRECT_PORT:-8700}" --host 127.0.0.1 \
-    >> "$SCRIPT_DIR/base.log" 2>&1 &
-  PIDS+=($!); NAMES+=("granite-base"); LOGS+=("base.log")
+    >> "$LOGDIR/base.log" 2>&1 &
+  PIDS+=($!); NAMES+=("granite-base"); LOGS+=("runtime/logs/base.log")
 fi
 
 if profile_active plus; then
   uvicorn serve_plus:app --port "${GRANITE_PLUS_PROXY_PORT:-18701}" --host 127.0.0.1 \
-    >> "$SCRIPT_DIR/plus.log" 2>&1 &
-  PIDS+=($!); NAMES+=("granite-plus"); LOGS+=("plus.log")
+    >> "$LOGDIR/plus.log" 2>&1 &
+  PIDS+=($!); NAMES+=("granite-plus"); LOGS+=("runtime/logs/plus.log")
 
   echo "Waiting for granite-plus model on :${GRANITE_PLUS_PROXY_PORT:-18701}..."
   for _ in $(seq 1 90); do
@@ -280,14 +279,14 @@ if profile_active plus; then
   done
 
   uvicorn serve_plus_proxy:app --port "${GRANITE_PLUS_DIRECT_PORT:-8701}" --host 127.0.0.1 \
-    >> "$SCRIPT_DIR/plus.log" 2>&1 &
-  PIDS+=($!); NAMES+=("granite-plus-proxy"); LOGS+=("plus.log")
+    >> "$LOGDIR/plus.log" 2>&1 &
+  PIDS+=($!); NAMES+=("granite-plus-proxy"); LOGS+=("runtime/logs/plus.log")
 fi
 
 if profile_active nar; then
   uvicorn serve_nar:app --port "${GRANITE_NAR_DIRECT_PORT:-8702}" --host 127.0.0.1 \
-    >> "$SCRIPT_DIR/nar.log" 2>&1 &
-  PIDS+=($!); NAMES+=("granite-nar"); LOGS+=("nar.log")
+    >> "$LOGDIR/nar.log" 2>&1 &
+  PIDS+=($!); NAMES+=("granite-nar"); LOGS+=("runtime/logs/nar.log")
 fi
 
 # Monitor: report if a server exits unexpectedly but keep the others running.

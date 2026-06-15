@@ -30,7 +30,7 @@ Both public ports (`$GRANITE_BASE_DIRECT_PORT` and `$GRANITE_PLUS_DIRECT_PORT`) 
 
 ## Performance
 
-Measured on **Apple M3 Ultra** (MPS) with `start_apple_dockerless.sh`, 33-minute
+Measured on **Apple M3 Ultra** (MPS) with `scripts/start_apple_dockerless.sh`, 33-minute
 looped speech audio (226 chunks of ≤ 14 s each).
 
 | Backend | Mode | Speed | Words | Chunks |
@@ -52,12 +52,12 @@ cp .env.example .env          # set HF_TOKEN, LLAMA_API_KEY and GRANITE_API_KEY
 
 **Option A — use pre-built images from ghcr.io (recommended):**
 ```bash
-./start_ghcr.sh
+./scripts/start_ghcr.sh
 ```
 
 **Option B — build from local source:**
 ```bash
-./start_local_docker.sh
+./scripts/start_local_docker.sh
 ```
 
 Both scripts auto-detect an NVIDIA GPU: on Linux with a CUDA-capable GPU they pull/build the `:cuda` image and enable GPU passthrough; otherwise they use the CPU image. Both also load `docker-compose.local.yml` if it exists — see [Local overrides](#local-overrides) below. On Mac Silicon, Docker pulls the `arm64` layer of `:latest` automatically — no separate script needed. Note that MPS acceleration is unavailable inside Docker on Mac (Linux VM); for native MPS performance, run the servers directly (see [Apple Silicon note](#apple-silicon-note) below).
@@ -78,7 +78,7 @@ stopping it cleanly on shutdown, and restarting it if it crashes.
 | Linux (Ubuntu / systemd) | systemd system service | [`service/linux-systemd/`](service/linux-systemd/README.md) |
 | Windows | multiple options (WSL2, NSSM, Task Scheduler) | [`service/windows/`](service/windows/README.txt) |
 
-**macOS** — registers `start_apple_dockerless.sh` as a LaunchAgent that runs at
+**macOS** — registers `scripts/start_apple_dockerless.sh` as a LaunchAgent that runs at
 login and restarts automatically on crash:
 
 ```bash
@@ -164,7 +164,7 @@ COMPOSE_PROFILES=base,nar
 COMPOSE_PROFILES=nar
 ```
 
-`docker compose up -d` picks up `COMPOSE_PROFILES` from `.env` automatically. `test_endpoints.sh` and `start_apple_dockerless.sh` read the same variable and skip sections for inactive profiles.
+`docker compose up -d` picks up `COMPOSE_PROFILES` from `.env` automatically. `scripts/test_endpoints.sh` and `scripts/start_apple_dockerless.sh` read the same variable and skip sections for inactive profiles.
 
 ---
 
@@ -269,10 +269,10 @@ MPS acceleration is not available inside Docker (Linux VM). For native MPS perfo
 
 ```bash
 cp .env.example .env      # fill in GRANITE_API_KEY and LLAMA_API_KEY
-./start_apple_dockerless.sh
+./scripts/start_apple_dockerless.sh
 ```
 
-`start_apple_dockerless.sh` lazy-installs all dependencies on first run (Python 3.11, a venv, PyTorch arm64 + MPS, and the Python requirements), then starts all three servers. The only prerequisite it does **not** auto-install:
+`scripts/start_apple_dockerless.sh` lazy-installs all dependencies on first run (Python 3.11, a venv, PyTorch arm64 + MPS, and the Python requirements), then starts all three servers. The only prerequisite it does **not** auto-install:
 
 - **Homebrew** — install from <https://brew.sh> if missing
 
@@ -284,7 +284,7 @@ Python 3.10+ is required (the NAR model's remote code uses Python 3.10+ union-ty
 3. A pre-built binary downloaded from the [latest GitHub Release](https://github.com/angrave/granite-speech-4.1-serve/releases/latest) (~seconds)
 4. A full source build from the llama.cpp `main` branch — only if all of the above fail (~10 min, cached for subsequent runs)
 
-Server output is written to `base.log`, `plus.log`, and `nar.log` in the repo root. Run `tail -f *.log` in a second terminal to monitor startup. Models are downloaded from HuggingFace on first run (several GB each); subsequent starts load from cache.
+Server output is written to `runtime/logs/base.log`, `runtime/logs/plus.log`, and `runtime/logs/nar.log`. Run `tail -f runtime/logs/*.log` in a second terminal to monitor startup. Models are downloaded from HuggingFace on first run (several GB each); subsequent starts load from cache.
 
 The script starts one process per active profile: `base` → `llama-server` (`:$GRANITE_BASE_PROXY_PORT`) + `serve_base` proxy (`:$GRANITE_BASE_DIRECT_PORT`); `plus` → `serve_plus` model (`:$GRANITE_PLUS_PROXY_PORT`) + `serve_plus_proxy` (`:$GRANITE_PLUS_DIRECT_PORT`); `nar` → `serve_nar` (`:$GRANITE_NAR_DIRECT_PORT`). Which profiles are active is read from `COMPOSE_PROFILES` in `.env` (default: all three). The plus proxy waits for the plus model to be healthy before starting. Port defaults can be overridden via the `GRANITE_*_PORT` variables in `.env`.
 

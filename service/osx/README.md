@@ -5,7 +5,7 @@ Runs `start_apple_dockerless.sh` automatically at login using macOS's native
 
 ## Prerequisites
 
-1. Run `start_apple_dockerless.sh` **manually at least once** from the repo root.
+1. Run `scripts/start_apple_dockerless.sh` **manually at least once** from the repo root.
    First-run downloads several GB of models and may build llama.cpp from source
    (~10 min). The service is only suitable for subsequent auto-starts.
 2. Ensure `.env` exists in the repo root with valid `GRANITE_API_KEY` and
@@ -32,7 +32,7 @@ will start again on every login.
 | Remove from login | `bash service/osx/uninstall.sh` |
 | Watch logs | `tail -f service/osx/service.log` |
 | Check status | `launchctl list com.granite-speech.serve` |
-| Watch server logs | `tail -f base.log plus.log nar.log` |
+| Watch server logs | `tail -f runtime/logs/*.log` |
 
 ## How it works
 

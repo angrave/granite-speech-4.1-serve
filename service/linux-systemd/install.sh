@@ -57,9 +57,9 @@ HOME_DIR="$(getent passwd "$RUN_USER" | cut -d: -f6)"
 # ── Resolve start script ──────────────────────────────────────────────────────
 
 if [[ "$MODE" == "ghcr" ]]; then
-  START_SCRIPT="start_ghcr.sh"
+  START_SCRIPT="scripts/start_ghcr.sh"
 else
-  START_SCRIPT="start_local_docker.sh"
+  START_SCRIPT="scripts/start_local_docker.sh"
 fi
 
 # ── Pre-flight checks ─────────────────────────────────────────────────────────

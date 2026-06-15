@@ -9,7 +9,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>INSTALL_DIR/start_apple_dockerless.sh</string>
+    <string>INSTALL_DIR/scripts/start_apple_dockerless.sh</string>
   </array>
 
   <key>WorkingDirectory</key>
