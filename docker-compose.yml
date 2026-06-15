@@ -145,6 +145,7 @@ services:
       - GRANITE_API_KEY=${GRANITE_API_KEY:-}
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HOME=/cache/huggingface
+      - GRANITE_NAR_DEVICE=${GRANITE_NAR_DEVICE:-}
     volumes:
       - hf_cache:/cache/huggingface
     restart: unless-stopped
