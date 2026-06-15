@@ -29,6 +29,7 @@ services:
   #     --port 18700 --host 127.0.0.1 --api-key $LLAMA_API_KEY
   # To force Rosetta emulation on Apple Silicon, add: platform: linux/amd64
   llama-base:
+    profiles: [base]
     image: ghcr.io/ggml-org/llama.cpp:server
     platform: linux/amd64
     command: >
@@ -54,6 +55,7 @@ services:
   # Public-facing on :8700.  Splits long audio into ≤14 s chunks, forwards
   # each to the internal llama-server, and stitches results.
   granite-base:
+    profiles: [base]
     build:
       context: .
       dockerfile: Dockerfile
@@ -82,6 +84,7 @@ services:
   # the public-facing endpoint.  Reachable within the Docker network as
   # http://granite-plus:18701.
   granite-plus:
+    profiles: [plus]
     build:
       context: .
       dockerfile: Dockerfile
@@ -108,6 +111,7 @@ services:
   # each to the internal plus model, and stitches results — unwrapping
   # [T:N] timestamps and remapping [Speaker N]: labels across chunk boundaries.
   granite-plus-proxy:
+    profiles: [plus]
     build:
       context: .
       dockerfile: Dockerfile
@@ -133,6 +137,7 @@ services:
 
   # ── Backend 2b: NAR model (non-autoregressive, fastest) ──────────────────
   granite-nar:
+    profiles: [nar]
     build:
       context: .
       dockerfile: Dockerfile

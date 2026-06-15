@@ -27,11 +27,6 @@ services:
   # granite-plus-proxy is a pure HTTP proxy — no GPU required.
 
   granite-nar:
-    environment:
-      GRANITE_NAR_DEVICE: cpu
-    depends_on:
-      granite-plus:
-        condition: service_healthy
     deploy:
       resources:
         reservations:

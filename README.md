@@ -66,6 +66,37 @@ Models are downloaded from HuggingFace on first start (several GB) and cached in
 
 ---
 
+## Running as a background service
+
+Scripts for installing granite-speech as an auto-starting system service are
+provided for both macOS and Linux. They handle starting the stack at boot,
+stopping it cleanly on shutdown, and restarting it if it crashes.
+
+| Platform | Mechanism | Directory |
+|----------|-----------|-----------|
+| macOS | launchd LaunchAgent | [`service/osx/`](service/osx/README.md) |
+| Linux (Ubuntu / systemd) | systemd system service | [`service/linux-systemd/`](service/linux-systemd/README.md) |
+| Windows | multiple options (WSL2, NSSM, Task Scheduler) | [`service/windows/`](service/windows/README.txt) |
+
+**macOS** — registers `start_apple_dockerless.sh` as a LaunchAgent that runs at
+login and restarts automatically on crash:
+
+```bash
+bash service/osx/install.sh
+```
+
+**Linux** — registers the docker compose stack as a systemd system service that
+starts at boot. Choose `ghcr` (recommended) or `local` for the image source:
+
+```bash
+sudo bash service/linux-systemd/install.sh --mode ghcr
+```
+
+See the platform README for the full command reference, log options, and
+uninstall instructions.
+
+---
+
 ## API usage
 
 All three endpoints accept `multipart/form-data` with a `file` field (WAV, MP3, FLAC, …).
@@ -105,10 +136,40 @@ Timestamp values in raw model output wrap at 1000 centiseconds (model design); t
 
 ---
 
+## Selecting which services to run
+
+Set `COMPOSE_PROFILES` in `.env` to control which service groups start. The three profile names map directly to the three backends:
+
+| Profile | Services started | Public port | Memory (approx.) |
+|---------|-----------------|-------------|-----------------|
+| `base` | `llama-base` + `granite-base` proxy | 8700 | ~2 GB |
+| `plus` | `granite-plus` + `granite-plus-proxy` | 8701 | ~8 GB |
+| `nar` | `granite-nar` | 8702 | ~4 GB |
+
+**Default (all three):**
+```
+COMPOSE_PROFILES=base,plus,nar
+```
+
+**Base + NAR only (skip the plus model to save GPU memory):**
+```
+COMPOSE_PROFILES=base,nar
+```
+
+**NAR only:**
+```
+COMPOSE_PROFILES=nar
+```
+
+`docker compose up -d` picks up `COMPOSE_PROFILES` from `.env` automatically. `test_endpoints.sh` and `start_apple_dockerless.sh` read the same variable and skip sections for inactive profiles.
+
+---
+
 ## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `COMPOSE_PROFILES` | `base,plus,nar` | Which service groups to start — see [Selecting which services to run](#selecting-which-services-to-run) |
 | `GRANITE_API_KEY` | _(unset = no auth)_ | Bearer token for plus and NAR servers |
 | `LLAMA_API_KEY` | _(unset = no auth)_ | Bearer token for the llama.cpp base server |
 | `GRANITE_SYSTEM_PROMPT` | IBM system prompt | Set to `""` to disable the system prompt |
@@ -217,7 +278,7 @@ Python 3.10+ is required (the NAR model's remote code uses Python 3.10+ union-ty
 
 Server output is written to `base.log`, `plus.log`, and `nar.log` in the repo root. Run `tail -f *.log` in a second terminal to monitor startup. Models are downloaded from HuggingFace on first run (several GB each); subsequent starts load from cache.
 
-The script starts five processes: `llama-server` (:18700), `serve_base` proxy (:8700), `serve_plus` model (:18701), `serve_plus_proxy` (:8701), and `serve_nar` (:8702). The proxy on :8701 waits for the model on :18701 to be healthy before starting.
+The script starts one process per active profile: `base` → `llama-server` (:18700) + `serve_base` proxy (:8700); `plus` → `serve_plus` model (:18701) + `serve_plus_proxy` (:8701); `nar` → `serve_nar` (:8702). Which profiles are active is read from `COMPOSE_PROFILES` in `.env` (default: all three). The proxy on :8701 waits for the model on :18701 to be healthy before starting.
 
 Press `Ctrl-C` to stop all servers.
 
