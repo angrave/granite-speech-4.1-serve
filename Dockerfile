@@ -14,9 +14,11 @@ RUN apt-get update && \
 #   CPU (default): https://download.pytorch.org/whl/cpu
 #   CUDA 12.4:     https://download.pytorch.org/whl/cu124
 # PyTorch CUDA wheels are self-contained (bundled runtime); no CUDA host install needed.
+# PYTORCH_VERSION: arm64 runners top out at 2.5.1 on pytorch.org/whl; all others use 2.6.0.
 ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+ARG PYTORCH_VERSION=2.6.0
 RUN pip install --no-cache-dir \
-    torch==2.6.0 torchaudio==2.6.0 \
+    torch==${PYTORCH_VERSION} torchaudio==${PYTORCH_VERSION} \
     --index-url ${PYTORCH_INDEX_URL}
 
 COPY requirements.txt .

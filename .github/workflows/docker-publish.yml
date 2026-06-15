@@ -29,12 +29,15 @@ jobs:
             platform-slug: amd64
             variant: cpu
             pytorch-index: https://download.pytorch.org/whl/cpu
+            pytorch-version: "2.6.0"
 
+          # arm64: pytorch.org/whl only publishes up to 2.5.1 for this arch
           - runner: ubuntu-22.04-arm
             platform: linux/arm64
             platform-slug: arm64
             variant: cpu
             pytorch-index: https://download.pytorch.org/whl/cpu
+            pytorch-version: "2.5.1"
 
           # CUDA 12.4 builds — multi-arch manifest becomes :cuda
           # amd64: standard NVIDIA GPU servers
@@ -44,12 +47,15 @@ jobs:
             platform-slug: amd64
             variant: cuda
             pytorch-index: https://download.pytorch.org/whl/cu124
+            pytorch-version: "2.6.0"
 
+          # arm64: pytorch.org/whl only publishes up to 2.5.1 for this arch
           - runner: ubuntu-22.04-arm
             platform: linux/arm64
             platform-slug: arm64
             variant: cuda
             pytorch-index: https://download.pytorch.org/whl/cu124
+            pytorch-version: "2.5.1"
 
     steps:
       - uses: actions/checkout@v4
@@ -70,7 +76,9 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          build-args: PYTORCH_INDEX_URL=${{ matrix.pytorch-index }}
+          build-args: |
+            PYTORCH_INDEX_URL=${{ matrix.pytorch-index }}
+            PYTORCH_VERSION=${{ matrix.pytorch-version }}
           # Push individual digest (no tag yet); merge job creates the manifest.
           outputs: >-
             type=image,
