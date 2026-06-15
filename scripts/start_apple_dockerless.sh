@@ -192,12 +192,16 @@ fi
 
 # ── Environment variables ────────────────────────────────────────────────────────
 
-if [[ -f "$REPO_ROOT/.env" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$REPO_ROOT/.env"
-  set +a
+if [[ ! -f "$REPO_ROOT/.env" ]]; then
+  echo "ERROR: .env not found." >&2
+  echo "       Copy .env.example to .env and fill in your keys." >&2
+  echo "       See README.md for details." >&2
+  exit 1
 fi
+set -a
+# shellcheck source=/dev/null
+source "$REPO_ROOT/.env"
+set +a
 
 for var in GRANITE_API_KEY LLAMA_API_KEY; do
   val="${!var:-}"

@@ -3,8 +3,15 @@ set -euo pipefail
 
 AUDIO="${1:-test.mp3}"
 
+if [[ ! -f .env ]]; then
+  echo "ERROR: .env not found." >&2
+  echo "       Copy .env.example to .env and fill in your keys." >&2
+  echo "       See README.md for details." >&2
+  exit 1
+fi
+
 # Auto-source .env if keys aren't already in the environment
-if [[ -z "${LLAMA_API_KEY:-}" || -z "${GRANITE_API_KEY:-}" ]] && [[ -f .env ]]; then
+if [[ -z "${LLAMA_API_KEY:-}" || -z "${GRANITE_API_KEY:-}" ]]; then
   # shellcheck source=.env
   # shellcheck disable=SC1091
   source .env
