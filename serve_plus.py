@@ -132,8 +132,19 @@ app = FastAPI(title="Granite Speech Plus", lifespan=lifespan)
 
 
 def load_audio_bytes(data: bytes) -> torch.Tensor:
-    audio, sr = sf.read(io.BytesIO(data), dtype="float32", always_2d=True)
-    waveform = torch.from_numpy(audio.T)  # (channels, samples)
+    """Decode audio bytes → float32 mono waveform tensor at 16 kHz.
+
+    Tries libsndfile (WAV, FLAC, OGG, …) first; falls back to torchaudio's
+    ffmpeg backend for MP3, MP4/AAC, and any other ffmpeg-supported format.
+    """
+    buf = io.BytesIO(data)
+    try:
+        audio, sr = sf.read(buf, dtype="float32", always_2d=True)
+        waveform = torch.from_numpy(audio.T)   # (channels, samples)
+    except Exception:
+        import torchaudio
+        buf.seek(0)
+        waveform, sr = torchaudio.load(buf)    # already (channels, samples)
     if sr != 16000:
         waveform = AF.resample(waveform, sr, 16000)
     if waveform.shape[0] > 1:

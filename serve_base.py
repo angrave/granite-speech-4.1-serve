@@ -45,9 +45,20 @@ app = FastAPI(title="Granite Speech Base (proxy)", lifespan=lifespan)
 
 
 def load_audio(data: bytes, target_sr: int = 16_000) -> np.ndarray:
-    """Decode any soundfile-supported format → float32 mono at target_sr."""
-    audio, sr = sf.read(io.BytesIO(data), dtype="float32", always_2d=True)
-    pcm = audio.mean(axis=1)            # stereo → mono
+    """Decode audio bytes → float32 mono at target_sr.
+
+    Tries libsndfile (WAV, FLAC, OGG, …) first; falls back to torchaudio's
+    ffmpeg backend for MP3, MP4/AAC, and any other ffmpeg-supported format.
+    """
+    buf = io.BytesIO(data)
+    try:
+        audio, sr = sf.read(buf, dtype="float32", always_2d=True)
+        pcm = audio.mean(axis=1)
+    except Exception:
+        import torchaudio, torch
+        buf.seek(0)
+        t, sr = torchaudio.load(buf)          # ffmpeg backend handles MP3, MP4, AAC…
+        pcm = t.mean(dim=0).numpy()           # (channels, samples) → mono
     if sr != target_sr:
         try:
             import torchaudio.functional as AF
@@ -56,7 +67,6 @@ def load_audio(data: bytes, target_sr: int = 16_000) -> np.ndarray:
             t = AF.resample(t, sr, target_sr)
             pcm = t.squeeze(0).numpy()
         except ImportError:
-            # integer-ratio decimation (rough, fine for speech)
             step = sr // target_sr
             pcm = pcm[::step]
     return pcm.astype(np.float32)
@@ -184,9 +194,12 @@ async def _post_chunk(wav_bytes, model, prompt, chunk_idx) -> dict:
 async def health():
     try:
         r = await _http_client.get(LLAMA_HEALTH_URL, timeout=5.0)
-        return r.json()
+        data = r.json()
     except Exception:
         raise HTTPException(503, "llama-server unreachable")
+    data.setdefault("model", "ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0")
+    data.setdefault("auth", "enabled" if _API_KEY else "disabled")
+    return data
 
 
 @app.post("/v1/audio/transcriptions", dependencies=[Depends(verify_key)])
@@ -195,8 +208,18 @@ async def transcribe(
     model:  str        = Form("ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0"),
     prompt: str        = Form("transcribe with punctuation and capitalization."),
 ):
-    raw   = await file.read()
-    pcm   = load_audio(raw)
+    raw = await file.read()
+
+    try:
+        r = await _http_client.get(LLAMA_HEALTH_URL, timeout=3.0)
+        if r.status_code != 200:
+            raise HTTPException(503, "llama-server unavailable or busy")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "llama-server unreachable")
+
+    pcm = load_audio(raw)
     sr    = 16_000
     dur_s = len(pcm) / sr
 

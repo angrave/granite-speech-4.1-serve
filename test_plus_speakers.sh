@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # test_plus_speakers.sh — Speaker attribution tests for the plus proxy.
 #
-# Tests speaker diarization through the proxy (:8701) and verifies results
-# against the internal endpoint (:18701) as ground truth.
+# Tests speaker diarization through the proxy ($GRANITE_PLUS_DIRECT_PORT) and verifies results
+# against the internal endpoint ($GRANITE_PLUS_PROXY_PORT) as ground truth.
 #
 # Fixtures in test_audio/ (regenerate with: ./generate_test_audio.sh):
 #   Source: 4404.mp3 (2 female), 4074.mp3 (2 male)
@@ -47,8 +47,8 @@ if [[ -z "${GRANITE_API_KEY:-}" ]] && [[ -f .env ]]; then
 fi
 : "${GRANITE_API_KEY:?GRANITE_API_KEY not set}"
 
-PROXY_URL="http://127.0.0.1:8701"
-INTERNAL_URL="http://127.0.0.1:18701"
+PROXY_URL="http://127.0.0.1:${GRANITE_PLUS_DIRECT_PORT:-8701}"
+INTERNAL_URL="http://127.0.0.1:${GRANITE_PLUS_PROXY_PORT:-18701}"
 SPK_PROMPT='<|audio|> Speaker attribution: Transcribe and denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns.'
 COMBINED_PROMPT='<|audio|> Timestamps and Speaker attribution: Transcribe the speech. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]. Denote who is speaking by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns.'
 
@@ -110,7 +110,7 @@ echo "=== TEST 1: 2 female speakers, short 30s (4404) — baseline ==="
 FILE="test_audio/2spk_short_30s.wav"
 
 if $RUN_INTERNAL; then
-  echo "  --- internal (:18701) ---"
+  echo "  --- internal (${INTERNAL_URL}) ---"
   resp=$(transcribe "$INTERNAL_URL" "$FILE")
   text=$(echo "$resp" | extract_text)
   n=$(count_speakers "$text")
@@ -119,7 +119,7 @@ if $RUN_INTERNAL; then
 fi
 
 if $RUN_PROXY; then
-  echo "  --- proxy (:8701) ---"
+  echo "  --- proxy (${PROXY_URL}) ---"
   resp=$(transcribe "$PROXY_URL" "$FILE")
   text=$(echo "$resp" | extract_text)
   chunks=$(echo "$resp" | extract_chunks)
@@ -138,7 +138,7 @@ echo "=== TEST 2: 2 male speakers, short 30s (4074) — distinct-voice control =
 FILE="test_audio/2spk_male_short_30s.wav"
 
 if $RUN_INTERNAL; then
-  echo "  --- internal (:18701) ---"
+  echo "  --- internal (${INTERNAL_URL}) ---"
   resp=$(transcribe "$INTERNAL_URL" "$FILE")
   text=$(echo "$resp" | extract_text)
   n=$(count_speakers "$text")
@@ -147,7 +147,7 @@ if $RUN_INTERNAL; then
 fi
 
 if $RUN_PROXY; then
-  echo "  --- proxy (:8701) ---"
+  echo "  --- proxy (${PROXY_URL}) ---"
   resp=$(transcribe "$PROXY_URL" "$FILE")
   text=$(echo "$resp" | extract_text)
   chunks=$(echo "$resp" | extract_chunks)
@@ -165,7 +165,7 @@ echo "=== TEST 3: 2 female speakers, medium 90s (4404) ==="
 FILE="test_audio/2spk_medium_90s.wav"
 
 if $RUN_INTERNAL; then
-  echo "  --- internal (:18701) ---"
+  echo "  --- internal (${INTERNAL_URL}) ---"
   resp=$(transcribe "$INTERNAL_URL" "$FILE")
   text=$(echo "$resp" | extract_text)
   n=$(count_speakers "$text")
@@ -174,7 +174,7 @@ if $RUN_INTERNAL; then
 fi
 
 if $RUN_PROXY; then
-  echo "  --- proxy (:8701) ---"
+  echo "  --- proxy (${PROXY_URL}) ---"
   resp=$(transcribe "$PROXY_URL" "$FILE")
   text=$(echo "$resp" | extract_text)
   chunks=$(echo "$resp" | extract_chunks)
@@ -191,7 +191,7 @@ echo "=== TEST 4: 2 female speakers, long 150s (4404) — over threshold ==="
 FILE="test_audio/2spk_long_150s.wav"
 
 if $RUN_INTERNAL; then
-  echo "  --- internal (:18701) ---"
+  echo "  --- internal (${INTERNAL_URL}) ---"
   resp=$(transcribe "$INTERNAL_URL" "$FILE")
   text=$(echo "$resp" | extract_text)
   n=$(count_speakers "$text")
@@ -201,7 +201,7 @@ if $RUN_INTERNAL; then
 fi
 
 if $RUN_PROXY; then
-  echo "  --- proxy (:8701) ---"
+  echo "  --- proxy (${PROXY_URL}) ---"
   resp=$(transcribe "$PROXY_URL" "$FILE")
   text=$(echo "$resp" | extract_text)
   chunks=$(echo "$resp" | extract_chunks)
@@ -219,7 +219,7 @@ echo "=== TEST 5: 2 male speakers, long 180s (4074) — over threshold ==="
 FILE="test_audio/2spk_male_long_180s.wav"
 
 if $RUN_PROXY; then
-  echo "  --- proxy (:8701) ---"
+  echo "  --- proxy (${PROXY_URL}) ---"
   resp=$(transcribe "$PROXY_URL" "$FILE")
   text=$(echo "$resp" | extract_text)
   chunks=$(echo "$resp" | extract_chunks)
@@ -240,7 +240,7 @@ FILE="test_audio/4spk_short_62s.wav"
 SPK4_PROMPT='<|audio|> Speaker attribution: Transcribe and denote who is speaking by adding [Speaker 1]:, [Speaker 2]:, [Speaker 3]:, and [Speaker 4]: tags before speaker turns.'
 
 if $RUN_INTERNAL; then
-  echo "  --- internal (:18701) with 4-speaker prompt ---"
+  echo "  --- internal (${INTERNAL_URL}) with 4-speaker prompt ---"
   resp=$(transcribe "$INTERNAL_URL" "$FILE" "$SPK4_PROMPT")
   text=$(echo "$resp" | extract_text)
   n=$(count_speakers "$text")
@@ -255,7 +255,7 @@ if $RUN_INTERNAL; then
 fi
 
 if $RUN_PROXY; then
-  echo "  --- proxy (:8701) with 4-speaker prompt ---"
+  echo "  --- proxy (${PROXY_URL}) with 4-speaker prompt ---"
   resp=$(transcribe "$PROXY_URL" "$FILE" "$SPK4_PROMPT")
   text=$(echo "$resp" | extract_text)
   chunks=$(echo "$resp" | extract_chunks)
@@ -278,7 +278,7 @@ echo "=== TEST 7: 4-voice sequential 153s (female+male) — over threshold ==="
 FILE="test_audio/4spk_long_153s.wav"
 
 if $RUN_PROXY; then
-  echo "  --- proxy (:8701) with 4-speaker prompt ---"
+  echo "  --- proxy (${PROXY_URL}) with 4-speaker prompt ---"
   resp=$(transcribe "$PROXY_URL" "$FILE" "$SPK4_PROMPT")
   text=$(echo "$resp" | extract_text)
   chunks=$(echo "$resp" | extract_chunks)
@@ -297,7 +297,7 @@ fi
 # KNOWN LIMITATION: The model collapses to 1 speaker when given the combined
 # (speaker + timestamps) prompt with similar-sounding female voices, even when
 # sent as a single full-audio request (no chunking).  The internal endpoint
-# (:18701) exhibits the same behaviour — this is a model limitation, not a
+# ($GRANITE_PLUS_PROXY_PORT) exhibits the same behaviour — this is a model limitation, not a
 # proxy bug.  Male voices (Test 9) are distinct enough to survive the combined
 # prompt.  Failure here is expected and does not indicate a regression.
 # ══════════════════════════════════════════════════════════════════════════════
@@ -306,7 +306,7 @@ echo "=== TEST 8: Combined speaker + timestamps, female 30s (4404) ==="
 FILE="test_audio/2spk_short_30s.wav"
 
 if $RUN_PROXY; then
-  echo "  --- proxy (:8701) ---"
+  echo "  --- proxy (${PROXY_URL}) ---"
   resp=$(transcribe "$PROXY_URL" "$FILE" "$COMBINED_PROMPT")
   text=$(echo "$resp" | extract_text)
   n=$(count_speakers "$text")
@@ -325,7 +325,7 @@ echo "=== TEST 9: Combined speaker + timestamps, male 30s (4074) ==="
 FILE="test_audio/2spk_male_short_30s.wav"
 
 if $RUN_PROXY; then
-  echo "  --- proxy (:8701) ---"
+  echo "  --- proxy (${PROXY_URL}) ---"
   resp=$(transcribe "$PROXY_URL" "$FILE" "$COMBINED_PROMPT")
   text=$(echo "$resp" | extract_text)
   n=$(count_speakers "$text")
@@ -417,7 +417,7 @@ echo ""
 echo "  Known model limitations:"
 echo "    - Only 2 speaker labels used regardless of how many distinct voices are present."
 echo "    - Combined (speaker + timestamps) prompt collapses female speakers to 1 label."
-echo "      Internal endpoint (:18701) has the same behaviour — not a proxy bug."
+echo "      Internal endpoint (${INTERNAL_URL}) has the same behaviour — not a proxy bug."
 echo "      Male voices are distinct enough to survive the combined prompt (Test 9)."
 echo "  See PLUS-SPEAKER-REWORK.md for full analysis."
 echo ""

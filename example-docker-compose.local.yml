@@ -1,11 +1,11 @@
 services:
   granite-plus-proxy:
     ports:
-      - "8701:8701"
+      - "${GRANITE_PLUS_DIRECT_PORT:-8701}:${GRANITE_PLUS_DIRECT_PORT:-8701}"
   granite-nar:
     ports:
-      - "8702:8702"
+      - "${GRANITE_NAR_DIRECT_PORT:-8702}:${GRANITE_NAR_DIRECT_PORT:-8702}"
   granite-base:
     ports:
-      - "8700:8700"
+      - "${GRANITE_BASE_DIRECT_PORT:-8700}:${GRANITE_BASE_DIRECT_PORT:-8700}"
 

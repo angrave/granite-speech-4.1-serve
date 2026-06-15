@@ -14,8 +14,27 @@ fi
 : "${LLAMA_API_KEY:?LLAMA_API_KEY not set. Run: source .env}"
 : "${GRANITE_API_KEY:?GRANITE_API_KEY not set. Run: source .env}"
 
+GRANITE_BASE_DIRECT_PORT="${GRANITE_BASE_DIRECT_PORT:-8700}"
+GRANITE_PLUS_DIRECT_PORT="${GRANITE_PLUS_DIRECT_PORT:-8701}"
+GRANITE_NAR_DIRECT_PORT="${GRANITE_NAR_DIRECT_PORT:-8702}"
+
+# Returns 0 if the named profile is active (or COMPOSE_PROFILES is unset → all active).
+profile_active() {
+  local profiles="${COMPOSE_PROFILES:-base,plus,nar}"
+  [[ ",$profiles," == *",$1,"* ]]
+}
+
 echo "=== Pre-flight: server health (no auth required) ==="
-for port in 8700 8701 8702; do
+for port in "${GRANITE_BASE_DIRECT_PORT}" "${GRANITE_PLUS_DIRECT_PORT}" "${GRANITE_NAR_DIRECT_PORT}"; do
+  case $port in
+    "${GRANITE_BASE_DIRECT_PORT}") profile="base" ;;
+    "${GRANITE_PLUS_DIRECT_PORT}") profile="plus" ;;
+    "${GRANITE_NAR_DIRECT_PORT}")  profile="nar"  ;;
+  esac
+  if ! profile_active "$profile"; then
+    echo "  Port ${port}: SKIPPED (profile '$profile' not in COMPOSE_PROFILES)"
+    continue
+  fi
   result=$(curl -sf "http://127.0.0.1:${port}/health" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','?'), '| auth:', d.get('auth','n/a'))" \
     2>/dev/null || echo "UNREACHABLE")
@@ -23,8 +42,17 @@ for port in 8700 8701 8702; do
 done
 
 echo ""
-echo "=== Auth rejection check (expect 401 from all three) ==="
-for port in 8700 8701 8702; do
+echo "=== Auth rejection check (expect 401 from active endpoints) ==="
+for port in "${GRANITE_BASE_DIRECT_PORT}" "${GRANITE_PLUS_DIRECT_PORT}" "${GRANITE_NAR_DIRECT_PORT}"; do
+  case $port in
+    "${GRANITE_BASE_DIRECT_PORT}") profile="base" ;;
+    "${GRANITE_PLUS_DIRECT_PORT}") profile="plus" ;;
+    "${GRANITE_NAR_DIRECT_PORT}")  profile="nar"  ;;
+  esac
+  if ! profile_active "$profile"; then
+    echo "  Port ${port} without key: SKIPPED"
+    continue
+  fi
   code=$(curl -s -o /dev/null -w "%{http_code}" \
     -F "file=@${AUDIO}" \
     -F "model=test" \
@@ -32,9 +60,10 @@ for port in 8700 8701 8702; do
   echo "  Port ${port} without key: HTTP ${code}"
 done
 
+if profile_active base; then
 echo ""
-echo "=== Base (llama.cpp proxy, port 8700) ==="
-raw=$(curl -s http://127.0.0.1:8700/v1/audio/transcriptions \
+echo "=== Base (llama.cpp proxy, port ${GRANITE_BASE_DIRECT_PORT}) ==="
+raw=$(curl -s "http://127.0.0.1:${GRANITE_BASE_DIRECT_PORT}/v1/audio/transcriptions" \
   -H "Authorization: Bearer ${LLAMA_API_KEY}" \
   -F "model=ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
   -F "file=@${AUDIO}" \
@@ -48,10 +77,12 @@ print('  text:  ', d['text'])
 assert d['text'].strip(), 'FAIL: text is empty'
 print('  PASS: non-empty')
 " "${raw}"
+fi # profile: base
 
+if profile_active plus; then
 echo ""
-echo "=== Plus — plain ASR (port 8701) ==="
-raw=$(curl -s http://127.0.0.1:8701/v1/audio/transcriptions \
+echo "=== Plus — plain ASR (port ${GRANITE_PLUS_DIRECT_PORT}) ==="
+raw=$(curl -s "http://127.0.0.1:${GRANITE_PLUS_DIRECT_PORT}/v1/audio/transcriptions" \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus")
@@ -67,11 +98,11 @@ print('  PASS: non-empty')
 " "${raw}"
 
 echo ""
-echo "=== Plus — word-level timestamps (port 8701) ==="
+echo "=== Plus — word-level timestamps (port ${GRANITE_PLUS_DIRECT_PORT}) ==="
 # Timestamps use format [T:N] where N is end-time in centiseconds mod 1000.
 # Note: use --form-string (not -F) for prompts that start with <|audio|> — curl's
 # -F flag treats values starting with < as file-content references.
-raw=$(curl -s http://127.0.0.1:8701/v1/audio/transcriptions \
+raw=$(curl -s "http://127.0.0.1:${GRANITE_PLUS_DIRECT_PORT}/v1/audio/transcriptions" \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
@@ -88,8 +119,8 @@ print('  PASS: non-empty')
 " "${raw}"
 
 echo ""
-echo "=== Plus — speaker attribution (port 8701) ==="
-raw=$(curl -s http://127.0.0.1:8701/v1/audio/transcriptions \
+echo "=== Plus — speaker attribution (port ${GRANITE_PLUS_DIRECT_PORT}) ==="
+raw=$(curl -s "http://127.0.0.1:${GRANITE_PLUS_DIRECT_PORT}/v1/audio/transcriptions" \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
@@ -105,11 +136,10 @@ assert text.strip(), 'FAIL: text is empty'
 print('  PASS: non-empty')
 " "${raw}"
 
-
 echo ""
-echo "=== Plus — keyword biasing (port 8701) ==="
+echo "=== Plus — keyword biasing (port ${GRANITE_PLUS_DIRECT_PORT}) ==="
 # Add keywords to bias recognition towards domain-specific terms.
-raw=$(curl -s http://127.0.0.1:8701/v1/audio/transcriptions \
+raw=$(curl -s "http://127.0.0.1:${GRANITE_PLUS_DIRECT_PORT}/v1/audio/transcriptions" \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
@@ -124,11 +154,13 @@ print('  text:', text)
 assert text.strip(), 'FAIL: text is empty'
 print('  PASS: non-empty')
 " "${raw}"
+fi # profile: plus
 
 
+if profile_active nar; then
 echo ""
-echo "=== NAR (FastAPI, port 8702) ==="
-raw=$(curl -s http://127.0.0.1:8702/v1/audio/transcriptions \
+echo "=== NAR (FastAPI, port ${GRANITE_NAR_DIRECT_PORT}) ==="
+raw=$(curl -s "http://127.0.0.1:${GRANITE_NAR_DIRECT_PORT}/v1/audio/transcriptions" \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=nar")
@@ -142,10 +174,12 @@ print('  text:', text)
 assert text.strip(), 'FAIL: text is empty'
 print('  PASS: non-empty')
 " "${raw}"
+fi # profile: nar
 
+if profile_active plus; then
 echo ""
-echo "=== Plus — speaker attribution on multi-speaker audio (port 8701) ==="
-raw=$(curl -s http://127.0.0.1:8701/v1/audio/transcriptions \
+echo "=== Plus — speaker attribution on multi-speaker audio (port ${GRANITE_PLUS_DIRECT_PORT}) ==="
+raw=$(curl -s "http://127.0.0.1:${GRANITE_PLUS_DIRECT_PORT}/v1/audio/transcriptions" \
   -H "Authorization: Bearer ${GRANITE_API_KEY}" \
   -F "file=@${AUDIO}" \
   -F "model=plus" \
@@ -162,5 +196,6 @@ assert '[Speaker 1]:' in text and '[Speaker 2]:' in text, \
     'FAIL: expected both [Speaker 1]: and [Speaker 2]: tags'
 print('  PASS: speaker split detected')
 " "${raw}"
+fi # profile: plus
 
 echo "=== Done ==="

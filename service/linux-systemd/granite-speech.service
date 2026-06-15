@@ -1,0 +1,19 @@
+[Unit]
+Description=Granite Speech 4.1 Serve (docker compose)
+Documentation=https://github.com/angrave/granite-speech-4.1-serve
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=RUN_USER
+WorkingDirectory=INSTALL_DIR
+ExecStart=/bin/bash INSTALL_DIR/START_SCRIPT
+ExecStop=/usr/bin/docker compose down
+Environment="HOME=HOME_DIR"
+LOGGING_CONFIG_PLACEHOLDER
+
+[Install]
+WantedBy=multi-user.target

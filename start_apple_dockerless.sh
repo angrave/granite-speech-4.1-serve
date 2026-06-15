@@ -20,6 +20,9 @@ info() { echo "→ $*"; }
 command -v brew &>/dev/null \
   || die "Homebrew not found. Install from https://brew.sh then re-run."
 
+command -v ffmpeg &>/dev/null \
+  || { info "Installing ffmpeg via Homebrew..."; brew install ffmpeg; }
+
 # ── llama-server (cache → brew → release download → source build) ───────────────
 
 BREW_PREFIX="$(brew --prefix)"
@@ -98,12 +101,15 @@ else
         info "Installing cmake via Homebrew..."
         brew install cmake
       fi
+      LLAMA_CPP_TAG=b4738
+#      LLAMA_CPP_TAG=b9644
       LLAMA_SRC="$SCRIPT_DIR/.llama_build/src"
       if [[ ! -d "$LLAMA_SRC/.git" ]]; then
-        git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LLAMA_SRC"
+        git clone --depth 1 --branch "$LLAMA_CPP_TAG" https://github.com/ggml-org/llama.cpp "$LLAMA_SRC"
       else
-        info "Updating llama.cpp source..."
-        git -C "$LLAMA_SRC" pull --ff-only
+        info "Pinning llama.cpp source to ${LLAMA_CPP_TAG}..."
+        git -C "$LLAMA_SRC" fetch --depth 1 origin "refs/tags/${LLAMA_CPP_TAG}"
+        git -C "$LLAMA_SRC" checkout FETCH_HEAD
       fi
       cmake -S "$LLAMA_SRC" -B "$LLAMA_SRC/build" \
         -DGGML_METAL=ON \
@@ -164,8 +170,13 @@ source "$VENV/bin/activate"
 # ── PyTorch — arm64 wheel includes MPS ──────────────────────────────────────────
 
 if ! python3 -c 'import torch' &>/dev/null; then
-  info "Installing torch and torchaudio (arm64 + MPS)..."
-  pip install --quiet torch torchaudio
+<<<<<<< HEAD
+  info "Installing torch==2.6.0 and torchaudio==2.6.0 (arm64 + MPS)..."
+  pip install --quiet torch==2.6.0 torchaudio==2.6.0
+=======
+  info "Installing torch==2.11.0 and torchaudio==2.11.0 (arm64 + MPS)..."
+  pip install --quiet torch==2.11.0 torchaudio==2.11.0
+>>>>>>> e5606fddb46f1d29d786dff2499dd3e92f6ba0b3
 fi
 
 if ! python3 -c 'import torch; assert torch.backends.mps.is_available()' &>/dev/null; then
@@ -200,6 +211,11 @@ for var in GRANITE_API_KEY LLAMA_API_KEY; do
     || die "$var still has its placeholder value. Set a real key in .env."
 done
 
+# Which services to run — mirrors Docker Compose profiles.
+# Default: all three. Override in .env: COMPOSE_PROFILES=base,nar
+_PROFILES="${COMPOSE_PROFILES:-base,plus,nar}"
+profile_active() { [[ ",$_PROFILES," == *",$1,"* ]]; }
+
 # ── Launch ───────────────────────────────────────────────────────────────────────
 
 cd "$SCRIPT_DIR"
@@ -218,12 +234,13 @@ cleanup() {
 trap cleanup INT TERM
 
 echo ""
+echo "Active profiles: $_PROFILES"
 echo "Starting servers (logs: base.log, plus.log, nar.log — use 'tail -f *.log' to monitor)"
-echo "  :18700 granite-base-llama  (llama.cpp + Metal, internal)"
-echo "  :8700  granite-base        (chunking proxy)"
-echo "  :18701 granite-plus        (PyTorch + MPS, internal)"
-echo "  :8701  granite-plus-proxy  (chunking proxy with timestamp/speaker stitching)"
-echo "  :8702  granite-nar         (PyTorch + MPS)"
+profile_active base && echo "  :${GRANITE_BASE_PROXY_PORT:-18700} granite-base-llama  (llama.cpp + Metal, internal)"
+profile_active base && echo "  :${GRANITE_BASE_DIRECT_PORT:-8700}  granite-base        (chunking proxy)"
+profile_active plus && echo "  :${GRANITE_PLUS_PROXY_PORT:-18701} granite-plus        (PyTorch + MPS, internal)"
+profile_active plus && echo "  :${GRANITE_PLUS_DIRECT_PORT:-8701}  granite-plus-proxy  (chunking proxy with timestamp/speaker stitching)"
+profile_active nar  && echo "  :${GRANITE_NAR_DIRECT_PORT:-8702}  granite-nar         (PyTorch + MPS)"
 echo ""
 echo "Note: models are downloaded from HuggingFace on first run (several GB each)."
 echo "Press Ctrl+C to stop all servers."
@@ -232,40 +249,46 @@ echo ""
 # Ensure dylibs co-located with the binary are found (needed for downloaded release builds).
 export DYLD_LIBRARY_PATH="$(dirname "$LLAMA_SERVER")${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
-"$LLAMA_SERVER" \
-  -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
-  --port 18700 --host 127.0.0.1 \
-  --api-key "$LLAMA_API_KEY" \
-  >> "$SCRIPT_DIR/base.log" 2>&1 &
-PIDS+=($!); NAMES+=("granite-base-llama"); LOGS+=("base.log")
+if profile_active base; then
+  "$LLAMA_SERVER" \
+    -hf ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0 \
+    --port "${GRANITE_BASE_PROXY_PORT:-18700}" --host 127.0.0.1 \
+    --api-key "$LLAMA_API_KEY" \
+    >> "$SCRIPT_DIR/base.log" 2>&1 &
+  PIDS+=($!); NAMES+=("granite-base-llama"); LOGS+=("base.log")
 
-echo "Waiting for llama-server on :18700..."
-for _ in $(seq 1 60); do
-  curl -sf http://127.0.0.1:18700/health > /dev/null 2>&1 && break
-  sleep 2
-done
+  echo "Waiting for llama-server on :${GRANITE_BASE_PROXY_PORT:-18700}..."
+  for _ in $(seq 1 60); do
+    curl -sf "http://127.0.0.1:${GRANITE_BASE_PROXY_PORT:-18700}/health" > /dev/null 2>&1 && break
+    sleep 2
+  done
 
-uvicorn serve_base:app --port 8700 --host 127.0.0.1 \
-  >> "$SCRIPT_DIR/base.log" 2>&1 &
-PIDS+=($!); NAMES+=("granite-base"); LOGS+=("base.log")
+  uvicorn serve_base:app --port "${GRANITE_BASE_DIRECT_PORT:-8700}" --host 127.0.0.1 \
+    >> "$SCRIPT_DIR/base.log" 2>&1 &
+  PIDS+=($!); NAMES+=("granite-base"); LOGS+=("base.log")
+fi
 
-uvicorn serve_plus:app --port 18701 --host 127.0.0.1 \
-  >> "$SCRIPT_DIR/plus.log" 2>&1 &
-PIDS+=($!); NAMES+=("granite-plus"); LOGS+=("plus.log")
+if profile_active plus; then
+  uvicorn serve_plus:app --port "${GRANITE_PLUS_PROXY_PORT:-18701}" --host 127.0.0.1 \
+    >> "$SCRIPT_DIR/plus.log" 2>&1 &
+  PIDS+=($!); NAMES+=("granite-plus"); LOGS+=("plus.log")
 
-echo "Waiting for granite-plus model on :18701..."
-for _ in $(seq 1 90); do
-  curl -sf http://127.0.0.1:18701/health > /dev/null 2>&1 && break
-  sleep 2
-done
+  echo "Waiting for granite-plus model on :${GRANITE_PLUS_PROXY_PORT:-18701}..."
+  for _ in $(seq 1 90); do
+    curl -sf "http://127.0.0.1:${GRANITE_PLUS_PROXY_PORT:-18701}/health" > /dev/null 2>&1 && break
+    sleep 2
+  done
 
-uvicorn serve_plus_proxy:app --port 8701 --host 127.0.0.1 \
-  >> "$SCRIPT_DIR/plus.log" 2>&1 &
-PIDS+=($!); NAMES+=("granite-plus-proxy"); LOGS+=("plus.log")
+  uvicorn serve_plus_proxy:app --port "${GRANITE_PLUS_DIRECT_PORT:-8701}" --host 127.0.0.1 \
+    >> "$SCRIPT_DIR/plus.log" 2>&1 &
+  PIDS+=($!); NAMES+=("granite-plus-proxy"); LOGS+=("plus.log")
+fi
 
-uvicorn serve_nar:app --port 8702 --host 127.0.0.1 \
-  >> "$SCRIPT_DIR/nar.log" 2>&1 &
-PIDS+=($!); NAMES+=("granite-nar"); LOGS+=("nar.log")
+if profile_active nar; then
+  uvicorn serve_nar:app --port "${GRANITE_NAR_DIRECT_PORT:-8702}" --host 127.0.0.1 \
+    >> "$SCRIPT_DIR/nar.log" 2>&1 &
+  PIDS+=($!); NAMES+=("granite-nar"); LOGS+=("nar.log")
+fi
 
 # Monitor: report if a server exits unexpectedly but keep the others running.
 while true; do
