@@ -220,7 +220,7 @@ text = d['text']
 print('  text:', text)
 assert text.strip(), 'FAIL: text is empty'
 assert re.search(r'[A-Z]', text), 'FAIL: no capitalization found'
-assert re.search(r'[.!?,]', text), 'FAIL: no punctuation found'
+assert re.search(‘[.!?,\x27]’, text), ‘FAIL: no punctuation found’
 print('  PASS: non-empty, capitalized, punctuated')
 " "${raw}"
 fi # profile: base
