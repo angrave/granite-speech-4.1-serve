@@ -1,5 +1,4 @@
 # PyTorch must be installed separately — it needs a platform-specific index URL.
-# Pinned to 2.6.0 (released 2026-03-23); torchaudio 2.12.0 does not yet exist.
 #
 #   Apple Silicon (arm64, PyPI wheels):
 #     pip install torch==2.6.0 torchaudio==2.6.0

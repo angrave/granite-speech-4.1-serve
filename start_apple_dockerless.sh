@@ -102,6 +102,7 @@ else
         brew install cmake
       fi
       LLAMA_CPP_TAG=b4738
+#      LLAMA_CPP_TAG=b9644
       LLAMA_SRC="$SCRIPT_DIR/.llama_build/src"
       if [[ ! -d "$LLAMA_SRC/.git" ]]; then
         git clone --depth 1 --branch "$LLAMA_CPP_TAG" https://github.com/ggml-org/llama.cpp "$LLAMA_SRC"
@@ -169,8 +170,13 @@ source "$VENV/bin/activate"
 # ── PyTorch — arm64 wheel includes MPS ──────────────────────────────────────────
 
 if ! python3 -c 'import torch' &>/dev/null; then
+<<<<<<< HEAD
   info "Installing torch==2.6.0 and torchaudio==2.6.0 (arm64 + MPS)..."
   pip install --quiet torch==2.6.0 torchaudio==2.6.0
+=======
+  info "Installing torch==2.11.0 and torchaudio==2.11.0 (arm64 + MPS)..."
+  pip install --quiet torch==2.11.0 torchaudio==2.11.0
+>>>>>>> e5606fddb46f1d29d786dff2499dd3e92f6ba0b3
 fi
 
 if ! python3 -c 'import torch; assert torch.backends.mps.is_available()' &>/dev/null; then
