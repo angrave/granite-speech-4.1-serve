@@ -1,6 +1,6 @@
 # granite-speech-4.1-serve
 
-OpenAI-compatible speech-to-text API server for [IBM Granite Speech 4.1-2B](https://huggingface.co/ibm-granite), exposing three backends behind a single `POST /v1/audio/transcriptions` interface.
+OpenAI-compatible speech-to-text API server for [IBM Granite Speech 4.1-2B](https://huggingface.co/ibm-granite/granite-speech-4.1-2b), plus and NAR variants, exposing three backends `POST /v1/audio/transcriptions` interface. This project also provides two wrapper endpoints that automatically chunck and restitch results of the base and plus models to overcome context length limitations.
 
 | Port (env var) | Service | Model | Notes |
 |----------------|---------|-------|-------|
@@ -23,7 +23,7 @@ Both public ports (`$GRANITE_BASE_DIRECT_PORT` and `$GRANITE_PLUS_DIRECT_PORT`) 
   - *Combined* — timestamp unwrapping applied first, then speaker remapping.
 
 **Model limitations (plus backend):**
-- The model assigns at most 2 speaker labels (`[Speaker 1]:` / `[Speaker 2]:`) regardless of how many distinct voices are present.
+- Our testing found the model assigned at most 2 speaker labels (`[Speaker 1]:` / `[Speaker 2]:`) regardless of how many distinct voices are present.
 - The combined (speaker + timestamps) prompt can cause the model to collapse similar-sounding voices (e.g. female pairs) to a single speaker label. This is a model limitation; the plain speaker-attribution prompt is more reliable for similar voices.
 
 ---
@@ -201,47 +201,7 @@ COMPOSE_PROFILES=nar
 
 ## Local overrides
 
-Create a `docker-compose.local.yml` file in the project root to customise your deployment without touching the git-tracked compose files. Both start scripts pick it up automatically if it exists; it is listed in `.gitignore` so it will never be committed.
-
-Common uses:
-
-**Expose service ports to the host:**
-```yaml
-services:
-  granite-plus:
-    ports:
-      - "8001:8001"
-  granite-nar:
-    ports:
-      - "8002:8002"
-  granite-base:
-    ports:
-      - "9797:9797"
-```
-
-**Add a sidecar service (e.g. a reverse proxy):**
-```yaml
-services:
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-```
-
-**Override resource limits or environment variables:**
-```yaml
-services:
-  granite-plus:
-    environment:
-      GRANITE_SYSTEM_PROMPT: ""
-    deploy:
-      resources:
-        limits:
-          cpus: "4"
-          memory: 8g
-```
+Create a `docker-compose.local.yml` file in the project root to customise your deployment without touching the git-tracked compose files. Both start scripts pick it up automatically if it exists; it is listed in `.gitignore` so it will never be committed. Common use cases for this is to expose service the direct ports, or change resource allocation settings. 
 
 ---
 
@@ -260,17 +220,7 @@ Docker pulls the correct architecture automatically. The start scripts detect yo
 
 ### Enabling NVIDIA GPU passthrough
 
-Add to each service in `docker-compose.yml`:
-
-```yaml
-deploy:
-  resources:
-    reservations:
-      devices:
-        - driver: nvidia
-          count: 1
-          capabilities: [gpu]
-```
+docker-compose.gpu.yml has examples of mapping GPU resources to Docker containers.
 
 Then pick the image tag that matches your GPU's CUDA version and ensure `nvidia-container-toolkit` is installed on the host. The `start_ghcr.sh` script does this selection automatically.
 
@@ -329,7 +279,7 @@ docker build \
 ```
 
 # References
-The test.wav was created from TalkBank multiconversastion (4404.mp3) at https://talkbank.org/ca/access/CallHome/eng.html
+The test.wav and other testing files used TalkBank multiconversastion (4074.mp3 4404.mp3 4941.mp3) at https://talkbank.org/ca/access/CallHome/eng.html
 
 Linguistic Data Consortium (2008). CABank English CallHome Corpus. TalkBank. doi:10.21415/T5KP54
 Canavan, A., Graff, D., & Zipperlen, G. (1997). CALLHOME American English Speech LDC97S42. Philadelphia: Linguistic Data Consortium.
