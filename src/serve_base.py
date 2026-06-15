@@ -206,7 +206,7 @@ async def health():
 async def transcribe(
     file:   UploadFile = File(...),
     model:  str        = Form("ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0"),
-    prompt: str        = Form("transcribe with punctuation and capitalization."),
+    prompt: str        = Form("<|audio|>transcribe the speech with proper punctuation and capitalization."),
 ):
     raw = await file.read()
 

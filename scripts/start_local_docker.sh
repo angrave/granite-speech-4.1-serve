@@ -1,6 +1,6 @@
 #!/bin/bash
-SCRIPT=`dirname $BASH_SOURCE`
-cd $SCRIPT
+SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT/.."
 
 if nvidia-smi &>/dev/null || [ -e /dev/nvidia0 ]; then
   export PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu124

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AUDIO="${1:-test.wav}"
+AUDIO="${1:-test.mp3}"
 
 # Auto-source .env if keys aren't already in the environment
 if [[ -z "${LLAMA_API_KEY:-}" || -z "${GRANITE_API_KEY:-}" ]] && [[ -f .env ]]; then
@@ -17,6 +17,12 @@ fi
 GRANITE_BASE_DIRECT_PORT="${GRANITE_BASE_DIRECT_PORT:-8700}"
 GRANITE_PLUS_DIRECT_PORT="${GRANITE_PLUS_DIRECT_PORT:-8701}"
 GRANITE_NAR_DIRECT_PORT="${GRANITE_NAR_DIRECT_PORT:-8702}"
+GRANITE_BASE_PROXY_PORT="${GRANITE_BASE_PROXY_PORT:-18700}"
+GRANITE_PLUS_PROXY_PORT="${GRANITE_PLUS_PROXY_PORT:-18701}"
+AUDIO_SHORT="${AUDIO_SHORT:-test10s.wav}"
+
+: "${AUDIO_SHORT:?}"
+[[ -f "$AUDIO_SHORT" ]] || { echo "ERROR: $AUDIO_SHORT not found. Run: scripts/create_test_audio.sh" >&2; exit 1; }
 
 # Returns 0 if the named profile is active (or COMPOSE_PROFILES is unset → all active).
 profile_active() {
@@ -67,7 +73,7 @@ raw=$(curl -s "http://127.0.0.1:${GRANITE_BASE_DIRECT_PORT}/v1/audio/transcripti
   -H "Authorization: Bearer ${LLAMA_API_KEY}" \
   -F "model=ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
   -F "file=@${AUDIO}" \
-  -F "prompt=transcribe with punctuation and capitalization.")
+  --form-string "prompt=<|audio|>transcribe the speech with proper punctuation and capitalization.")
 echo "  raw: ${raw}"
 python3 -c "
 import sys, json
@@ -195,6 +201,47 @@ assert text.strip(), 'FAIL: text is empty'
 assert '[Speaker 1]:' in text and '[Speaker 2]:' in text, \
     'FAIL: expected both [Speaker 1]: and [Speaker 2]: tags'
 print('  PASS: speaker split detected')
+" "${raw}"
+fi # profile: plus
+
+if profile_active base; then
+echo ""
+echo "=== Base — direct llama-server (port ${GRANITE_BASE_PROXY_PORT}, 10s clip) ==="
+raw=$(curl -s "http://127.0.0.1:${GRANITE_BASE_PROXY_PORT}/v1/audio/transcriptions" \
+  -H "Authorization: Bearer ${LLAMA_API_KEY}" \
+  -F "model=ibm-granite/granite-speech-4.1-2b-GGUF:Q8_0" \
+  -F "file=@${AUDIO_SHORT}" \
+  --form-string "prompt=<|audio|>transcribe the speech with proper punctuation and capitalization.")
+echo "  raw: ${raw}"
+python3 -c "
+import sys, json, re
+d = json.loads(sys.argv[1])
+text = d['text']
+print('  text:', text)
+assert text.strip(), 'FAIL: text is empty'
+assert re.search(r'[A-Z]', text), 'FAIL: no capitalization found'
+assert re.search(r'[.!?,]', text), 'FAIL: no punctuation found'
+print('  PASS: non-empty, capitalized, punctuated')
+" "${raw}"
+fi # profile: base
+
+if profile_active plus; then
+echo ""
+echo "=== Plus — direct model with timestamps (port ${GRANITE_PLUS_PROXY_PORT}, 10s clip) ==="
+raw=$(curl -s "http://127.0.0.1:${GRANITE_PLUS_PROXY_PORT}/v1/audio/transcriptions" \
+  -H "Authorization: Bearer ${GRANITE_API_KEY}" \
+  -F "file=@${AUDIO_SHORT}" \
+  -F "model=plus" \
+  --form-string "prompt=<|audio|> Timestamps: Transcribe the speech. After each word, add a timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]")
+echo "  raw: ${raw}"
+python3 -c "
+import sys, json, re
+d = json.loads(sys.argv[1])
+text = d['text']
+print('  text:', text)
+assert text.strip(), 'FAIL: text is empty'
+assert re.search(r'\[T:\d+\]', text), 'FAIL: no timestamp tags found'
+print('  PASS: timestamps present')
 " "${raw}"
 fi # profile: plus
 

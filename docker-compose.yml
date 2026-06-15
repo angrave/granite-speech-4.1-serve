@@ -37,6 +37,8 @@ services:
       --port ${GRANITE_BASE_PROXY_PORT:-18700}
       --host 0.0.0.0
       --api-key ${LLAMA_API_KEY:-}
+    ports:
+      - "127.0.0.1:${GRANITE_BASE_PROXY_PORT:-18700}:${GRANITE_BASE_PROXY_PORT:-18700}"
     environment:
       - LLAMA_API_KEY=${LLAMA_API_KEY:-}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -91,6 +93,8 @@ services:
       args:
         PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     command: uvicorn serve_plus:app --host 0.0.0.0 --port ${GRANITE_PLUS_PROXY_PORT:-18701}
+    ports:
+      - "127.0.0.1:${GRANITE_PLUS_PROXY_PORT:-18701}:${GRANITE_PLUS_PROXY_PORT:-18701}"
     environment:
       - GRANITE_API_KEY=${GRANITE_API_KEY:-}
       - PLUS_MAX_NEW_TOKENS=${PLUS_MAX_NEW_TOKENS:-4096}
