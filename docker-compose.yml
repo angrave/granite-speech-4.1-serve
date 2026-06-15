@@ -63,6 +63,7 @@ services:
       dockerfile: Dockerfile
       args:
         PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+        PYTORCH_VERSION: ${PYTORCH_VERSION:-2.6.0}
     command: uvicorn serve_base:app --host 0.0.0.0 --port ${GRANITE_BASE_DIRECT_PORT:-8700}
     ports:
       - "127.0.0.1:${GRANITE_BASE_DIRECT_PORT:-8700}:${GRANITE_BASE_DIRECT_PORT:-8700}"
@@ -92,6 +93,7 @@ services:
       dockerfile: Dockerfile
       args:
         PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+        PYTORCH_VERSION: ${PYTORCH_VERSION:-2.6.0}
     command: uvicorn serve_plus:app --host 0.0.0.0 --port ${GRANITE_PLUS_PROXY_PORT:-18701}
     ports:
       - "127.0.0.1:${GRANITE_PLUS_PROXY_PORT:-18701}:${GRANITE_PLUS_PROXY_PORT:-18701}"
@@ -121,6 +123,7 @@ services:
       dockerfile: Dockerfile
       args:
         PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+        PYTORCH_VERSION: ${PYTORCH_VERSION:-2.6.0}
     command: uvicorn serve_plus_proxy:app --host 0.0.0.0 --port ${GRANITE_PLUS_DIRECT_PORT:-8701}
     ports:
       - "127.0.0.1:${GRANITE_PLUS_DIRECT_PORT:-8701}:${GRANITE_PLUS_DIRECT_PORT:-8701}"
@@ -147,6 +150,7 @@ services:
       dockerfile: Dockerfile
       args:
         PYTORCH_INDEX_URL: ${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+        PYTORCH_VERSION: ${PYTORCH_VERSION:-2.6.0}
     command: uvicorn serve_nar:app --host 0.0.0.0 --port ${GRANITE_NAR_DIRECT_PORT:-8702}
     ports:
       - "127.0.0.1:${GRANITE_NAR_DIRECT_PORT:-8702}:${GRANITE_NAR_DIRECT_PORT:-8702}"
@@ -182,15 +186,17 @@ volumes:
 #              - driver: nvidia
 #                count: 1
 #                capabilities: [gpu]
-# 3. Switch granite-plus and granite-nar to the pre-built CUDA image:
-#      image: ghcr.io/angrave/granite-speech-4.1-serve:cuda
-#    (remove the build: block — the :cuda image is published by CI with cu124 wheels)
+# 3. Switch granite-plus and granite-nar to a pre-built CUDA image:
+#      image: ghcr.io/angrave/granite-speech-4.1-serve:cuda      # CUDA 12.4 — Pascal→Ada (PyTorch 2.6)
+#      image: ghcr.io/angrave/granite-speech-4.1-serve:cuda128   # CUDA 12.8 — Blackwell/RTX 5000 (PyTorch 2.11)
+#      image: ghcr.io/angrave/granite-speech-4.1-serve:cuda130   # CUDA 13.0 — next-gen, amd64 only (PyTorch 2.11)
+#    (remove the build: block — these images are published by CI)
 #    Alternatively, keep build: and pass the CUDA wheel index as a build arg:
 #      build:
 #        context: .
 #        dockerfile: Dockerfile
 #        args:
-#          PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cu124
+#          PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cu128  # or cu124 / cu130
 # 4. For the llama-base service use the CUDA image instead:
 #      image: ghcr.io/ggml-org/llama.cpp:server-cuda-b9644
 #    and add the same deploy.resources block.

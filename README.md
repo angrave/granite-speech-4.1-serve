@@ -60,7 +60,16 @@ cp .env.example .env          # set HF_TOKEN, LLAMA_API_KEY and GRANITE_API_KEY
 ./scripts/start_local_docker.sh
 ```
 
-Both scripts auto-detect an NVIDIA GPU: on Linux with a CUDA-capable GPU they pull/build the `:cuda` image and enable GPU passthrough; otherwise they use the CPU image. Both also load `docker-compose.local.yml` if it exists — see [Local overrides](#local-overrides) below. On Mac Silicon, Docker pulls the `arm64` layer of `:latest` automatically — no separate script needed. Note that MPS acceleration is unavailable inside Docker on Mac (Linux VM); for native MPS performance, run the servers directly (see [Apple Silicon note](#apple-silicon-note) below).
+Both scripts auto-detect an NVIDIA GPU and its maximum supported CUDA version, then pick the highest compatible image/wheel set automatically:
+
+| Detected CUDA | Image tag / wheel set | Typical GPUs |
+|---------------|----------------------|--------------|
+| None | `:latest` / `cpu` | CPU-only |
+| < 12.8 | `:cuda` / `cu124` | Pascal → Ada Lovelace (RTX 4000 and earlier) |
+| 12.8 – 12.x | `:cuda128` / `cu128` | Blackwell (RTX 5000 series, GB200) |
+| 13.0+ | `:cuda130` / `cu130` | Next-gen beyond Blackwell |
+
+Both also load `docker-compose.local.yml` if it exists — see [Local overrides](#local-overrides) below. On Mac Silicon, Docker pulls the `arm64` layer of `:latest` automatically — no separate script needed. Note that MPS acceleration is unavailable inside Docker on Mac (Linux VM); for native MPS performance, run the servers directly (see [Apple Silicon note](#apple-silicon-note) below).
 
 Models are downloaded from HuggingFace on first start (several GB) and cached in a named volume.
 
@@ -240,12 +249,14 @@ services:
 
 Pre-built images are published to `ghcr.io/angrave/granite-speech-4.1-serve` on every push to `main`.
 
-| Tag | Platforms | When to use |
-|-----|-----------|-------------|
-| `latest` | `linux/amd64`, `linux/arm64` | CPU inference — plain x86_64 servers and Apple Silicon |
-| `cuda` | `linux/amd64`, `linux/arm64` | NVIDIA GPU — x86_64 servers (`amd64`) and Spark G10/GB10/GH200 (`arm64`) |
+| Tag | Platforms | PyTorch | When to use |
+|-----|-----------|---------|-------------|
+| `latest` | `linux/amd64`, `linux/arm64` | 2.6.0 | CPU inference — plain x86_64 servers and Apple Silicon |
+| `cuda` | `linux/amd64`, `linux/arm64` | 2.6.0 | NVIDIA CUDA 12.4 — Pascal → Ada Lovelace (RTX 4000 and earlier) |
+| `cuda128` | `linux/amd64`, `linux/arm64` | 2.11.0 | NVIDIA CUDA 12.8 — Blackwell (RTX 5000 series, GB200) |
+| `cuda130` | `linux/amd64` | 2.11.0 | NVIDIA CUDA 13.0 — next-gen beyond Blackwell (amd64 only) |
 
-Docker pulls the correct architecture automatically.
+Docker pulls the correct architecture automatically. The start scripts detect your GPU's CUDA version and select the right tag — no manual choice needed.
 
 ### Enabling NVIDIA GPU passthrough
 
@@ -261,7 +272,7 @@ deploy:
           capabilities: [gpu]
 ```
 
-Then use the `cuda` image tag and ensure `nvidia-container-toolkit` is installed on the host.
+Then pick the image tag that matches your GPU's CUDA version and ensure `nvidia-container-toolkit` is installed on the host. The `start_ghcr.sh` script does this selection automatically.
 
 ### Apple Silicon note
 
@@ -298,9 +309,23 @@ Press `Ctrl-C` to stop all servers.
 # CPU (default)
 docker build -t granite-speech .
 
-# NVIDIA CUDA 12.4
-docker build --build-arg PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu124 \
+# NVIDIA CUDA 12.4 — Pascal → Ada Lovelace (RTX 4000 and earlier)
+docker build \
+  --build-arg PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu124 \
+  --build-arg PYTORCH_VERSION=2.6.0 \
   -t granite-speech:cuda .
+
+# NVIDIA CUDA 12.8 — Blackwell (RTX 5000 series, GB200)
+docker build \
+  --build-arg PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu128 \
+  --build-arg PYTORCH_VERSION=2.11.0 \
+  -t granite-speech:cuda128 .
+
+# NVIDIA CUDA 13.0 — next-gen beyond Blackwell
+docker build \
+  --build-arg PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu130 \
+  --build-arg PYTORCH_VERSION=2.11.0 \
+  -t granite-speech:cuda130 .
 ```
 
 # References

@@ -57,6 +57,33 @@ jobs:
             pytorch-index: https://download.pytorch.org/whl/cu124
             pytorch-version: "2.5.1"
 
+          # CUDA 12.8 builds — multi-arch manifest becomes :cuda128
+          # Required for Blackwell GPUs (RTX 5000 series, GB200, etc.).
+          # Both amd64 and arm64 wheels are published at this CUDA level.
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            platform-slug: amd64
+            variant: cuda128
+            pytorch-index: https://download.pytorch.org/whl/cu128
+            pytorch-version: "2.11.0"
+
+          - runner: ubuntu-22.04-arm
+            platform: linux/arm64
+            platform-slug: arm64
+            variant: cuda128
+            pytorch-index: https://download.pytorch.org/whl/cu128
+            pytorch-version: "2.11.0"
+
+          # CUDA 13.0 builds — multi-arch manifest becomes :cuda130
+          # For next-generation GPU architectures beyond Blackwell.
+          # pytorch.org/whl does not publish cu130 arm64 torch wheels yet.
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            platform-slug: amd64
+            variant: cuda130
+            pytorch-index: https://download.pytorch.org/whl/cu130
+            pytorch-version: "2.11.0"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -120,8 +147,16 @@ jobs:
         include:
           - variant: cpu
             tag: latest
+            has-arm64: true
           - variant: cuda
             tag: cuda
+            has-arm64: true
+          - variant: cuda128
+            tag: cuda128
+            has-arm64: true
+          - variant: cuda130
+            tag: cuda130
+            has-arm64: false
 
     steps:
       - name: Download digests (${{ matrix.variant }}/amd64)
@@ -131,6 +166,7 @@ jobs:
           path: /tmp/digests
 
       - name: Download digests (${{ matrix.variant }}/arm64)
+        if: matrix.has-arm64
         uses: actions/download-artifact@v4
         with:
           name: digests-${{ matrix.variant }}-arm64
