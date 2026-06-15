@@ -16,7 +16,7 @@ RUN apt-get update && \
 # PyTorch CUDA wheels are self-contained (bundled runtime); no CUDA host install needed.
 ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir \
-    torch torchaudio \
+    torch==2.6.0 torchaudio==2.6.0 \
     --index-url ${PYTORCH_INDEX_URL}
 
 COPY requirements.txt .

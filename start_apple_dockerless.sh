@@ -20,6 +20,9 @@ info() { echo "→ $*"; }
 command -v brew &>/dev/null \
   || die "Homebrew not found. Install from https://brew.sh then re-run."
 
+command -v ffmpeg &>/dev/null \
+  || { info "Installing ffmpeg via Homebrew..."; brew install ffmpeg; }
+
 # ── llama-server (cache → brew → release download → source build) ───────────────
 
 BREW_PREFIX="$(brew --prefix)"
@@ -166,8 +169,8 @@ source "$VENV/bin/activate"
 # ── PyTorch — arm64 wheel includes MPS ──────────────────────────────────────────
 
 if ! python3 -c 'import torch' &>/dev/null; then
-  info "Installing torch and torchaudio (arm64 + MPS)..."
-  pip install --quiet torch torchaudio
+  info "Installing torch==2.6.0 and torchaudio==2.6.0 (arm64 + MPS)..."
+  pip install --quiet torch==2.6.0 torchaudio==2.6.0
 fi
 
 if ! python3 -c 'import torch; assert torch.backends.mps.is_available()' &>/dev/null; then

@@ -99,7 +99,10 @@ uninstall instructions.
 
 ## API usage
 
-All three endpoints accept `multipart/form-data` with a `file` field (WAV, MP3, FLAC, …).
+All three endpoints accept `multipart/form-data` with a `file` field. Supported
+formats: WAV, FLAC, OGG, MP3, MP4/AAC, and any other format handled by ffmpeg
+(installed in all deployments). Audio is decoded and resampled to 16 kHz mono
+before transcription.
 
 ```bash
 # Basic transcription (any backend)

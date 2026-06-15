@@ -107,9 +107,20 @@ app = FastAPI(title="Granite Speech Plus (proxy)", lifespan=lifespan)
 # ---------------------------------------------------------------------------
 
 def load_audio(data: bytes, target_sr: int = 16_000) -> np.ndarray:
-    """Decode any soundfile-supported format → float32 mono at target_sr."""
-    audio, sr = sf.read(io.BytesIO(data), dtype="float32", always_2d=True)
-    pcm = audio.mean(axis=1)
+    """Decode audio bytes → float32 mono at target_sr.
+
+    Tries libsndfile (WAV, FLAC, OGG, …) first; falls back to torchaudio's
+    ffmpeg backend for MP3, MP4/AAC, and any other ffmpeg-supported format.
+    """
+    buf = io.BytesIO(data)
+    try:
+        audio, sr = sf.read(buf, dtype="float32", always_2d=True)
+        pcm = audio.mean(axis=1)
+    except Exception:
+        import torchaudio, torch
+        buf.seek(0)
+        t, sr = torchaudio.load(buf)          # ffmpeg backend handles MP3, MP4, AAC…
+        pcm = t.mean(dim=0).numpy()           # (channels, samples) → mono
     if sr != target_sr:
         try:
             import torchaudio.functional as AF
@@ -558,8 +569,18 @@ async def transcribe(
     model:  str        = Form("plus"),
     prompt: str        = Form(DEFAULT_PROMPT),
 ):
-    raw   = await file.read()
-    pcm   = load_audio(raw)
+    raw = await file.read()
+
+    try:
+        r = await _http_client.get(PLUS_HEALTH_URL, timeout=3.0)
+        if r.status_code != 200:
+            raise HTTPException(503, "plus backend unavailable or busy")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "plus backend unreachable")
+
+    pcm = load_audio(raw)
     sr    = 16_000
     dur_s = len(pcm) / sr
     mode  = detect_mode(prompt)
