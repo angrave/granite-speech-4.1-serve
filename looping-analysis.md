@@ -80,8 +80,11 @@ the six largest loops.
 | C — same window shifted +3 s / +7 s | 0 / 6 · 0 / 6 |
 | D — control windows from loop-free regions | 0 / 12 |
 
-Condition A is decisive: 24.900 loops `da` ×587 and 6.0001 loops `it` ×368 with no
-chunking anywhere in the path. The failure is in the model.
+Condition A: 24.900 loops `da` ×587 and 6.0001 loops `it` ×368 with no *external*
+chunking. Note the model's own feature extractor still windows internally, so this
+rules out the proxy, not all windowing. With n=6 the reproduction rate carries a wide
+interval (Wilson ≈ [4 %, 71 %]) — this experiment alone would be thin evidence, and it
+is superseded by the prompt-mode experiment below.
 
 Two secondary findings. Loops are **audio-locked** — zero of twelve controls looped,
 so it is not random. And the **window modulates whether a given loop fires** —
@@ -105,6 +108,31 @@ Full re-decodes at `PLUS_CHUNK_MAX_S` ∈ {10, 14, 20}, loop tokens as % of outp
 No chunk size is safe. 10 s rescues one lecture and does nothing for the other.
 Consistent with Experiment 1: changing the window relocates triggers rather than
 removing the failure mode.
+
+
+## Experiment 5 — is it specific to the timestamps prompt? No.
+
+Timestamps mode emits ~3 tokens per word, which is exactly why looping responses stop
+at 682-684 of a 4096-token budget. That invites the obvious alternative explanation:
+the `[T:N]` structure, not the missing repetition control, is what locks the model in.
+
+Full-lecture decodes through the normal chunking proxy, unpatched server:
+
+| lecture | timestamps | plain |
+|---|---:|---:|
+| MIT 5.07 | 23.8 % | **0.00 %** |
+| MIT 6.0001 | 5.97 % | **28.93 %** |
+| Yale PSYC 110 | 13.1 % | **0.00 %** |
+| **aggregate loop tokens** | **3 768 / 26 394 = 14.3 %** | **4 063 / 26 043 = 15.6 %** |
+
+**The prompt changes which lectures loop, not whether looping happens.** Plain mode is
+marginally worse in aggregate. Both modes need the fix.
+
+*A methodological warning, from getting this wrong first.* An earlier version probed
+plain mode at the 15 onsets where *timestamps* mode looped and found 0/15 — a result
+guaranteed by construction, since plain mode loops elsewhere. Conditioning test sites
+on one arm's failures invalidates the comparison. The full-lecture decode above has no
+such conditioning.
 
 ## Experiment 3 — is it an audio-quality artefact? Partly, for one class.
 
