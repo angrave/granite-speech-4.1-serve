@@ -187,6 +187,8 @@ COMPOSE_PROFILES=nar
 | `GRANITE_SYSTEM_PROMPT` | IBM system prompt | Set to `""` to disable the system prompt |
 | `HF_HOME` | `/cache/huggingface` | HuggingFace model cache directory |
 | `PLUS_MAX_NEW_TOKENS` | `4096` | Max output tokens per chunk for the plus model (~3700 words) |
+| `PLUS_REPETITION_PENALTY` | `1.1` | Guards against repetition-loop hallucination, where the model repeats a short cycle until the token budget is exhausted. Set `1.0` to restore the previous (unguarded) behaviour — see [looping-analysis.md](looping-analysis.md) |
+| `PLUS_NO_REPEAT_NGRAM` | `0` _(off)_ | Hard ban on repeated n-grams. Blunter than the penalty — it also blocks legitimate repeated phrasing — so reach for it only in stubborn cases |
 | `PLUS_INTERNAL_URL` | `http://127.0.0.1:$GRANITE_PLUS_PROXY_PORT/v1/audio/transcriptions` | Plus proxy → model URL (set automatically in Docker) |
 | `PLUS_CHUNK_MAX_S` | `14` | Max chunk length in seconds for plain/timestamps modes |
 | `PLUS_SPEAKER_MAX_UNCHUNKED_S` | `120` | Audio at or below this duration is sent as a single request in speaker/combined modes (avoids per-chunk speaker label drift) |

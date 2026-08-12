@@ -69,6 +69,68 @@ SYSTEM_PROMPT = os.environ.get(
 
 MAX_NEW_TOKENS  = int(os.environ.get("PLUS_MAX_NEW_TOKENS", "4096"))
 
+# --------------------------------------------------------------------------- #
+# Repetition-loop mitigation.  Full study: looping-analysis.md
+#
+# THE BUG: this file used to call generate() with max_new_tokens only — greedy
+# decoding, no repetition control.  Granite Speech plus intermittently enters a
+# repeating cycle mid-generation, and with nothing penalising repetition it cannot
+# leave that state: it emits the cycle until the token budget runs out.  The
+# signature is unmistakable — every looping response lands at 682-684 tokens, i.e.
+# PLUS_MAX_NEW_TOKENS fully consumed.
+#
+# HOW BAD: on a 19-lecture / 16.3 h academic-lecture corpus, 12 of 19 lectures
+# looped and 4.65% of all emitted tokens were loop output.  Loops are almost pure
+# insertion, so they roughly DOUBLE WER (0.0668 -> 0.1141) while leaving word
+# recall (1-WAR) untouched.
+#
+# REPRODUCE — public lectures, fetched as 16 kHz mono wav with:
+#   yt-dlp -x --audio-format wav --postprocessor-args "ffmpeg:-ar 16000 -ac 1" \
+#          "https://www.youtube.com/watch?v=<VIDEO_ID>"
+#
+#   video id      lecture                                   loop              onset
+#   xAcTmDO6NTI   MIT 6.0001 Intro to CS, Lecture 1         'it' x655         2492.8 s
+#   KLb5CmPM7YY   MIT 5.07 Carbohydrates/Membranes          'herr kommissar'  471.6 s,
+#                                                            x204             1154.3 s, 2626.4 s
+#   P3FKHH2RzjI   Yale PSYC 110 Intro to Psychology, Lec 1  'but' x668        1274.2 s
+#   -pb3z2w9gDg   MIT 24.900 'The Society of Mind'          'da' x667         6260.3 s
+#
+#   ffmpeg -ss 2492.8 -t 14 -i 60001.wav -ar 16000 -ac 1 clip.wav
+#   curl -X POST localhost:18701/v1/audio/transcriptions -F "file=@clip.wav" \
+#        --form-string "prompt=$TS_PROMPT"
+#   # PLUS_REPETITION_PENALTY=1.0 -> 683 tokens, 'it' x677
+#   # PLUS_REPETITION_PENALTY=1.1 ->  49 tokens, 'it' x2
+#
+# 'herr kommissar' is NOT in the audio.  There is no German anywhere in that
+# corpus and the string appears in zero Whisper large-v3 transcripts of the same
+# lectures — it is training-data leakage surfacing over near-silence.
+#
+# WHY 1.1 — max consecutive repeats of any 1-4 token cycle, hardest clip:
+#   1.0 -> x677 | 1.02 -> x8 | 1.05 -> x7 | 1.1 -> x2 | 1.15 -> x2
+# 1.1 is the lowest tested value that fully clears the loop; 1.15 adds nothing and
+# risks suppressing legitimate repetition.  Cost, measured end-to-end against gold
+# captions under the Whisper EnglishTextNormalizer: +0.0017 in 1-WAR (within
+# noise) for a 0.16 WER reduction.  Hence on by default; set 1.0 to restore the
+# previous behaviour exactly.
+#
+# WHAT THIS DOES *NOT* FIX: chunk size is not the cause (10/14/20 s all still
+# loop) and neither is the proxy — loops reproduce with no chunking at all, and on
+# the hosted NCSA Lumen endpoint.  A second, distinct failure mode is
+# confabulation over near-silence, which this penalty only truncates; normalising
+# snippet level (RMS to about -20 dBFS, or EBU R128) removes that class outright
+# and belongs in the caller's pre-processing.
+# --------------------------------------------------------------------------- #
+REPETITION_PENALTY = float(os.environ.get("PLUS_REPETITION_PENALTY", "1.1"))
+NO_REPEAT_NGRAM    = int(os.environ.get("PLUS_NO_REPEAT_NGRAM", "0"))
+
+_GEN_KWARGS: dict = {}
+if REPETITION_PENALTY != 1.0:
+    _GEN_KWARGS["repetition_penalty"] = REPETITION_PENALTY
+if NO_REPEAT_NGRAM > 0:
+    # Blunter than the penalty: forbids ANY repeated n-gram, including legitimate
+    # repeated phrasing inside a chunk.  Off by default; for stubborn cases only.
+    _GEN_KWARGS["no_repeat_ngram_size"] = NO_REPEAT_NGRAM
+
 DEFAULT_PROMPT  = "<|audio|> can you transcribe the speech into a written format?"
 PUNCT_PROMPT    = "<|audio|> transcribe the speech with proper punctuation and capitalization."
 TS_PROMPT       = (
@@ -115,6 +177,10 @@ async def lifespan(app: FastAPI):
         print("System prompt: active (timestamps and speaker attribution enabled)")
     else:
         print("WARNING: GRANITE_SYSTEM_PROMPT is empty — timestamps/speaker attribution may fall back to plain ASR")
+    # Log the decoding config: a silently-disabled repetition penalty is exactly
+    # how the loop bug went unnoticed (see looping-analysis.md).
+    print(f"Generation: max_new_tokens={MAX_NEW_TOKENS}, "
+          f"{_GEN_KWARGS if _GEN_KWARGS else 'no repetition control (loops possible)'}")
     print(f"Loading {MODEL_ID} on {DEVICE} ...")
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     _model = AutoModelForSpeechSeq2Seq.from_pretrained(
@@ -165,7 +231,7 @@ def _infer(waveform: torch.Tensor, user_content: str) -> str:
     if audio_key:
         print(f"[plus] input audio tensor shape: {inputs[audio_key].shape}")
     with torch.inference_mode():
-        generated = _model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS)
+        generated = _model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS, **_GEN_KWARGS)
     input_len = inputs["input_ids"].shape[1]
     return processor.tokenizer.batch_decode(generated[:, input_len:], skip_special_tokens=True)[0].strip()
 
