@@ -65,7 +65,7 @@ Both scripts auto-detect an NVIDIA GPU and its maximum supported CUDA version, t
 | Detected CUDA | Image tag / wheel set | Typical GPUs |
 |---------------|----------------------|--------------|
 | None | `:latest` / `cpu` | CPU-only |
-| < 12.8 | `:cuda` / `cu124` | Pascal → Ada Lovelace (RTX 4000 and earlier) |
+| < 12.8 | `:cuda` / `cu126` | Pascal → Ada Lovelace (RTX 4000 and earlier) |
 | 12.8 – 12.x | `:cuda128` / `cu128` | Blackwell (RTX 5000 series, GB200) |
 | 13.0+ | `:cuda130` / `cu130` | Next-gen beyond Blackwell |
 
@@ -212,11 +212,13 @@ Pre-built images are published to `ghcr.io/angrave/granite-speech-4.1-serve` on 
 | Tag | Platforms | PyTorch | When to use |
 |-----|-----------|---------|-------------|
 | `latest` | `linux/amd64`, `linux/arm64` | 2.6.0 | CPU inference — plain x86_64 servers and Apple Silicon |
-| `cuda` | `linux/amd64`, `linux/arm64` | 2.6.0 | NVIDIA CUDA 12.4 — Pascal → Ada Lovelace (RTX 4000 and earlier) |
+| `cuda` | `linux/amd64`, `linux/arm64` | 2.7.1 (amd64) / 2.5.1 (arm64) | NVIDIA CUDA 12.6 — Pascal → Ada Lovelace (RTX 4000 and earlier)† |
 | `cuda128` | `linux/amd64`, `linux/arm64` | 2.11.0 | NVIDIA CUDA 12.8 — Blackwell (RTX 5000 series, GB200) |
 | `cuda130` | `linux/amd64` | 2.11.0 | NVIDIA CUDA 13.0 — next-gen beyond Blackwell (amd64 only) |
 
 Docker pulls the correct architecture automatically. The start scripts detect your GPU's CUDA version and select the right tag — no manual choice needed.
+
+† `cuda`'s amd64 build uses CUDA 12.6 wheels (`cu126` + torch 2.7.1) rather than 12.4: torch 2.6.0's exact `nvidia-cudnn-cu12==9.1.0.70` pin is absent from pytorch.org's `cu124` wheel index (that build is still on PyPI proper, just not mirrored there), so a `cu124` build now fails to resolve. torch 2.7.1 is the last release that still ships Pascal (sm_60/61) kernels, so this tier's GPU coverage is unchanged. arm64 stays on `cu124` + torch 2.5.1, which was never affected (that release's cudnn pin only applies on `platform_machine == "x86_64"`, and pytorch.org publishes no arm64 wheels on `cu126` at all).
 
 ### Enabling NVIDIA GPU passthrough
 
@@ -259,10 +261,12 @@ Press `Ctrl-C` to stop all servers.
 # CPU (default)
 docker build -t granite-speech .
 
-# NVIDIA CUDA 12.4 — Pascal → Ada Lovelace (RTX 4000 and earlier)
+# NVIDIA CUDA 12.6 — Pascal → Ada Lovelace (RTX 4000 and earlier)
+# (not cu124/2.6.0: torch 2.6.0's exact nvidia-cudnn-cu12==9.1.0.70 pin
+#  isn't on pytorch.org's cu124 index — see Dockerfile for details)
 docker build \
-  --build-arg PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu124 \
-  --build-arg PYTORCH_VERSION=2.6.0 \
+  --build-arg PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu126 \
+  --build-arg PYTORCH_VERSION=2.7.1 \
   -t granite-speech:cuda .
 
 # NVIDIA CUDA 12.8 — Blackwell (RTX 5000 series, GB200)

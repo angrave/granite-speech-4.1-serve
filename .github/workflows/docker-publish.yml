@@ -39,17 +39,35 @@ jobs:
             pytorch-index: https://download.pytorch.org/whl/cpu
             pytorch-version: "2.5.1"
 
-          # CUDA 12.4 builds — multi-arch manifest becomes :cuda
+          # CUDA builds — multi-arch manifest becomes :cuda (Pascal -> Ada Lovelace tier)
           # amd64: standard NVIDIA GPU servers
           # arm64: NVIDIA Spark G10 (GB10 Grace-Blackwell), GH200, Jetson Orin, etc.
+          #
+          # amd64 was on cu124 + torch==2.6.0, but that combination pins
+          # nvidia-cudnn-cu12==9.1.0.70 (a marker-gated dep for
+          # platform_machine == "x86_64" only — see torch's own metadata),
+          # and that exact cudnn build is absent from pytorch.org's cu124
+          # wheel index (present on PyPI, just never mirrored/retained on
+          # download.pytorch.org), so the resolve fails with "No matching
+          # distribution found for nvidia-cudnn-cu12==9.1.0.70". Bumped to
+          # cu126 + torch==2.7.1 — the last PyTorch release that still ships
+          # Pascal (sm_60/61) kernels, keeping this tier's "Pascal -> Ada"
+          # promise — whose cudnn pin (9.5.1.17) resolves cleanly as of
+          # 2026-08. Before bumping again, check
+          # https://download.pytorch.org/whl/<tag>/nvidia-cudnn-cu12/ for
+          # the version torch actually pins.
           - runner: ubuntu-latest
             platform: linux/amd64
             platform-slug: amd64
             variant: cuda
-            pytorch-index: https://download.pytorch.org/whl/cu124
-            pytorch-version: "2.6.0"
+            pytorch-index: https://download.pytorch.org/whl/cu126
+            pytorch-version: "2.7.1"
 
-          # arm64: pytorch.org/whl only publishes up to 2.5.1 for this arch
+          # arm64 stays on cu124 + torch==2.5.1: that combo's cudnn marker
+          # is scoped to platform_machine == "x86_64" so it never applied
+          # here, and pytorch.org does not publish arm64 wheels on cu126 at
+          # all (only cu124/cu128/cu130) — do not "align" this with the
+          # amd64 bump above, it would break the arm64 build.
           - runner: ubuntu-22.04-arm
             platform: linux/arm64
             platform-slug: arm64
