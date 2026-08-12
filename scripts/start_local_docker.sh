@@ -16,7 +16,20 @@ pick_cuda_wheels() {
   major=${ver%%.*}; minor=${ver##*.}
   if   [ "$major" -ge 13 ];                              then echo "cu130 2.11.0"
   elif [ "$major" -eq 12 ] && [ "$minor" -ge 8 ];        then echo "cu128 2.11.0"
-  else                                                         echo "cu124 2.6.0"
+  # cu124 + torch 2.6.0 (the previous pairing here) hard-pins
+  # nvidia-cudnn-cu12==9.1.0.70, and that exact build is absent from
+  # PyTorch's cu124 wheel index (it's still on PyPI proper, just never
+  # mirrored/kept on pytorch.org's cu124 channel), so
+  # `pip install torch==2.6.0 --index-url .../cu124` now fails with
+  # "No matching distribution found for nvidia-cudnn-cu12==9.1.0.70".
+  # cu126 + torch 2.7.1 is the last PyTorch release that still ships
+  # Pascal (sm_60/61) kernels — matching this tier's "Pascal -> Ada"
+  # promise below — and its cudnn pin (9.5.1.17) resolves cleanly as of
+  # 2026-08. If this breaks again, check whether the pinned
+  # nvidia-cudnn-cu12 version for the chosen torch release is still listed
+  # at https://download.pytorch.org/whl/<tag>/nvidia-cudnn-cu12/ before
+  # bumping further.
+  else                                                         echo "cu126 2.7.1"
   fi
 }
 

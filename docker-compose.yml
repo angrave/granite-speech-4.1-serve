@@ -187,7 +187,7 @@ volumes:
 #                count: 1
 #                capabilities: [gpu]
 # 3. Switch granite-plus and granite-nar to a pre-built CUDA image:
-#      image: ghcr.io/angrave/granite-speech-4.1-serve:cuda      # CUDA 12.4 — Pascal→Ada (PyTorch 2.6)
+#      image: ghcr.io/angrave/granite-speech-4.1-serve:cuda      # CUDA 12.6 — Pascal→Ada (PyTorch 2.7.1)
 #      image: ghcr.io/angrave/granite-speech-4.1-serve:cuda128   # CUDA 12.8 — Blackwell/RTX 5000 (PyTorch 2.11)
 #      image: ghcr.io/angrave/granite-speech-4.1-serve:cuda130   # CUDA 13.0 — next-gen, amd64 only (PyTorch 2.11)
 #    (remove the build: block — these images are published by CI)
@@ -196,7 +196,11 @@ volumes:
 #        context: .
 #        dockerfile: Dockerfile
 #        args:
-#          PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cu128  # or cu124 / cu130
+#          PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cu128  # or cu126 / cu130
+#          PYTORCH_VERSION: "2.11.0"                                  # 2.7.1 for cu126 (see Dockerfile)
+#    (the `cuda` tier moved from cu124/2.6.0 to cu126/2.7.1 — torch==2.6.0's
+#     exact nvidia-cudnn-cu12==9.1.0.70 pin isn't on pytorch.org's cu124
+#     index; see the comment above ARG PYTORCH_VERSION in Dockerfile)
 # 4. For the llama-base service use the CUDA image instead:
 #      image: ghcr.io/ggml-org/llama.cpp:server-cuda-b9644
 #    and add the same deploy.resources block.
