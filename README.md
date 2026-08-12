@@ -106,6 +106,37 @@ uninstall instructions.
 
 ---
 
+## Client-side mitigation: `granite-gator`
+
+`src/granite_gator.py` is a drop-in client that applies the same two mitigations as the
+patched server, from outside it — for hosted endpoints that do not expose
+`repetition_penalty`:
+
+- **gate** — refuse audio below `-50 dBFS` RMS, and level-normalise the rest to `-20 dBFS`
+  (peak-limited to `-1 dBFS`). This is what stops confabulation over near-silence.
+- **chomp** — collapse runs of a repeated 1–4 token cycle to 3 repetitions, repairing the
+  runaway `[T:N]` timestamps as a side effect.
+
+```bash
+# transcribe through any Granite endpoint
+python src/granite_gator.py --audio lecture.wav --out lecture.asr.json \
+    --endpoint http://localhost:8701/v1/audio/transcriptions
+
+# clean an already-decoded stream — no audio, no endpoint, no GPU
+python src/granite_gator.py --in raw.asr.json --out clean.asr.json --report r.json
+```
+
+Every default is measured, and the module docstring documents *why*, plus how to
+recreate both failure modes with four public lecture videos. Read it before tuning any
+threshold. Background: [looping-analysis.md](looping-analysis.md).
+
+**It is not a replacement for the server-side fix.** While the model loops it is not
+transcribing, so chomping removes the insertions but cannot recover the lost speech;
+re-decoding with `PLUS_REPETITION_PENALTY` does. Use the server fix where you control
+the server, the gator where you do not, and both where you can.
+
+---
+
 ## API usage
 
 All three endpoints accept `multipart/form-data` with a `file` field. Supported
