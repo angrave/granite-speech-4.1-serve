@@ -106,6 +106,37 @@ uninstall instructions.
 
 ---
 
+## Client-side mitigation: `granite-gator`
+
+`src/granite_gator.py` is a drop-in client that applies the same two mitigations as the
+patched server, from outside it — for hosted endpoints that do not expose
+`repetition_penalty`:
+
+- **gate** — refuse audio below `-50 dBFS` RMS, and level-normalise the rest to `-20 dBFS`
+  (peak-limited to `-1 dBFS`). This is what stops confabulation over near-silence.
+- **chomp** — collapse runs of a repeated 1–4 token cycle to 3 repetitions, repairing the
+  runaway `[T:N]` timestamps as a side effect.
+
+```bash
+# transcribe through any Granite endpoint
+python src/granite_gator.py --audio lecture.wav --out lecture.asr.json \
+    --endpoint http://localhost:8701/v1/audio/transcriptions
+
+# clean an already-decoded stream — no audio, no endpoint, no GPU
+python src/granite_gator.py --in raw.asr.json --out clean.asr.json --report r.json
+```
+
+Every default is measured, and the module docstring documents *why*, plus how to
+recreate both failure modes with four public lecture videos. Read it before tuning any
+threshold. Background: [looping-analysis.md](looping-analysis.md).
+
+**It is not a replacement for the server-side fix.** While the model loops it is not
+transcribing, so chomping removes the insertions but cannot recover the lost speech;
+re-decoding with `PLUS_REPETITION_PENALTY` does. Use the server fix where you control
+the server, the gator where you do not, and both where you can.
+
+---
+
 ## API usage
 
 All three endpoints accept `multipart/form-data` with a `file` field. Supported
@@ -187,6 +218,13 @@ COMPOSE_PROFILES=nar
 | `GRANITE_SYSTEM_PROMPT` | IBM system prompt | Set to `""` to disable the system prompt |
 | `HF_HOME` | `/cache/huggingface` | HuggingFace model cache directory |
 | `PLUS_MAX_NEW_TOKENS` | `4096` | Max output tokens per chunk for the plus model (~3700 words) |
+| `PLUS_REPETITION_PENALTY` | `1.1` | Guards against repetition-loop hallucination, where the model repeats a short cycle until the token budget is exhausted. Set `1.0` to restore the previous (unguarded) behaviour — see [looping-analysis.md](looping-analysis.md) |
+| `PLUS_NO_REPEAT_NGRAM` | `0` _(off)_ | Hard ban on repeated n-grams. Blunter than the penalty — it also blocks legitimate repeated phrasing — so reach for it only in stubborn cases |
+| `PLUS_NORMALIZE_AUDIO` | `1` | Normalise each clip's level before inference. Removes the second hallucination mode: confabulation over near-silence. `0` disables normalisation and the gate |
+| `PLUS_NORMALIZE_TARGET_DBFS` | `-20` | Target RMS level |
+| `PLUS_NORMALIZE_MAX_GAIN_DB` | `30` | Gain cap, so digital silence is not amplified into its own dither |
+| `PLUS_PEAK_CEILING_DBFS` | `-1` | Never clip. On very quiet material this is what actually binds |
+| `PLUS_SILENCE_GATE_DBFS` | `-50` | Below this, return empty rather than let the model invent content. A deep backstop, not the fix — see [looping-analysis.md](looping-analysis.md) for why the loss-optimal gate (−43 dBFS) was rejected |
 | `PLUS_INTERNAL_URL` | `http://127.0.0.1:$GRANITE_PLUS_PROXY_PORT/v1/audio/transcriptions` | Plus proxy → model URL (set automatically in Docker) |
 | `PLUS_CHUNK_MAX_S` | `14` | Max chunk length in seconds for plain/timestamps modes |
 | `PLUS_SPEAKER_MAX_UNCHUNKED_S` | `120` | Audio at or below this duration is sent as a single request in speaker/combined modes (avoids per-chunk speaker label drift) |
