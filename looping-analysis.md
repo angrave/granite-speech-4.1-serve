@@ -218,6 +218,69 @@ Plus, for pipelines that control their own pre-processing: **normalise snippet l
 before submission** (RMS to about −20 dBFS, or EBU R128). It removes the
 near-silence confabulation class outright, which the penalty only truncates.
 
+
+## Audio level normalisation (the second failure mode)
+
+`repetition_penalty` fixes the decode-time repetition lock. It only *truncates* the
+other mode — confabulation over near-silence — so the server also normalises level.
+
+**Ablation, normalisation only, `PLUS_REPETITION_PENALTY=1.0`:**
+
+| clip | class | result |
+|---|---|---|
+| 5.07 `herr kommissar` ×200 | near-silence | **ok**, 4 tok (−48.9 → −33.2 dBFS, +15.8 dB) |
+| 6.0001 `it` ×677 | level-independent | **still ×677** (−36.0 → −24.2 dBFS, +11.8 dB) |
+| 6.006 control | normal speech | ok, 48 tok (+7.2 dB) |
+| Yale control | normal speech | ok, 57 tok (+2.1 dB) |
+
+A clean dissociation: normalisation fixes that class and only that class, and leaves
+normal speech unharmed. With both mitigations on (the shipped default) all four are
+clean, including `it` ×677 → ×2.
+
+The peak ceiling usually binds on quiet material — the 5.07 clip gets +15.8 dB rather
+than the +28.9 dB the RMS target implies — which is exactly the `peak→−1` treatment
+measured to work above.
+
+### Why the gate is −50 dBFS and not the loss optimum
+
+A level gate skips chunks below T. Two independent analyses say it cannot be the fix.
+
+**Binary search from both directions.** Attenuate real speech until transcription
+collapses; amplify a hallucinating silent clip until the loop stops.
+
+| direction | result |
+|---|---|
+| speech floor (4 clips) | −87.4, −85.7, −91.0, −96.7 dBFS — survives 58–69 dB of attenuation |
+| hallucination ceiling | −40.2 dBFS |
+
+**The bounds are inverted.** Usable speech persists ~45 dB *below* where hallucination
+still occurs, so there is no interval to split. Granite is essentially level-invariant
+for speech, which is expected — the feature extractor normalises internally.
+
+**Dose-response over 4 171 real 14 s windows** (all 19 lectures), labelled with RMS,
+Whisper-attested word count, and Granite loop tokens. Gating at T costs the attested
+words below T and saves the loop tokens of loops starting below T; both are word
+errors, so they are directly comparable:
+
+| gate | words lost | loop tokens saved | net |
+|---:|---:|---:|---:|
+| −50 | 3 | 0 | −3 |
+| −45 | 137 | 408 | +271 |
+| **−43** | **335** | **1 224** | **+889 (optimum)** |
+| −40 | 1 141 | 1 624 | +483 |
+| −35 | 11 786 | 4 434 | −7 352 |
+| −30 | 58 811 | 5 963 | −52 848 |
+
+The loss-optimal gate captures only **17.3 %** of loop tokens — 83 % of loops fire at
+ordinary speech levels, where gating is catastrophic. And normalisation **dominates**
+gating on the same audio: the windows a −43 dB gate discards hold 335 attested words,
+whereas normalising those same clips stops the hallucination without discarding
+anything.
+
+So the shipped gate is a deep backstop at **−50 dBFS**, costing 3 transcribable words
+across 16.3 h, rather than the loss optimum. Set `PLUS_NORMALIZE_AUDIO=0` to disable
+normalisation and gating entirely.
+
 ## Known limitations
 
 - `repetition_penalty=1.1` reduces but does not eliminate the 24.900 `da` loop

@@ -40,6 +40,7 @@ Concurrency:
 import asyncio
 import hmac
 import io
+import math
 import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -123,6 +124,34 @@ MAX_NEW_TOKENS  = int(os.environ.get("PLUS_MAX_NEW_TOKENS", "4096"))
 REPETITION_PENALTY = float(os.environ.get("PLUS_REPETITION_PENALTY", "1.1"))
 NO_REPEAT_NGRAM    = int(os.environ.get("PLUS_NO_REPEAT_NGRAM", "0"))
 
+# --------------------------------------------------------------------------- #
+# Audio level normalisation and silence gate.  See looping-analysis.md.
+#
+# The repetition penalty above fixes the decode-time repetition lock. It does NOT
+# fix the second failure mode -- confabulation over near-silence -- which it can
+# only truncate. Normalising the clip's level removes that class outright.
+#
+# Defaults are measured, not guessed:
+#   TARGET  -20 dBFS  the level at which the near-silence clips stop confabulating
+#                     (verified here and on the hosted NCSA Lumen endpoint)
+#   MAX GAIN 30 dB    so digital silence is not amplified into its own dither
+#   PEAK    -1 dBFS   never clip; on very quiet material this is what actually
+#                     binds, and it reproduces the treatment measured to work
+#   GATE    -50 dBFS  below this there is nothing to amplify. Deliberately far
+#                     below the loss-optimal gate (-43 dBFS): across 4 171 real
+#                     14 s windows spanning 16.3 h, everything below -50 dBFS held
+#                     3 transcribable words in total, whereas -43 dBFS would
+#                     discard 335 genuine words to catch only 17% of loop tokens.
+#                     Level cannot separate the two populations -- 83% of loops
+#                     occur at ordinary speech levels -- so the gate is a backstop,
+#                     not the fix.
+# --------------------------------------------------------------------------- #
+NORMALIZE_AUDIO        = os.environ.get("PLUS_NORMALIZE_AUDIO", "1") not in ("0", "false", "False")
+NORMALIZE_TARGET_DBFS  = float(os.environ.get("PLUS_NORMALIZE_TARGET_DBFS", "-20"))
+NORMALIZE_MAX_GAIN_DB  = float(os.environ.get("PLUS_NORMALIZE_MAX_GAIN_DB", "30"))
+PEAK_CEILING_DBFS      = float(os.environ.get("PLUS_PEAK_CEILING_DBFS", "-1"))
+SILENCE_GATE_DBFS      = float(os.environ.get("PLUS_SILENCE_GATE_DBFS", "-50"))
+
 _GEN_KWARGS: dict = {}
 if REPETITION_PENALTY != 1.0:
     _GEN_KWARGS["repetition_penalty"] = REPETITION_PENALTY
@@ -181,6 +210,9 @@ async def lifespan(app: FastAPI):
     # how the loop bug went unnoticed (see looping-analysis.md).
     print(f"Generation: max_new_tokens={MAX_NEW_TOKENS}, "
           f"{_GEN_KWARGS if _GEN_KWARGS else 'no repetition control (loops possible)'}")
+    print(f"Audio: normalize={NORMALIZE_AUDIO} target={NORMALIZE_TARGET_DBFS} dBFS "
+          f"max_gain={NORMALIZE_MAX_GAIN_DB} dB peak={PEAK_CEILING_DBFS} dBFS "
+          f"gate={SILENCE_GATE_DBFS} dBFS")
     print(f"Loading {MODEL_ID} on {DEVICE} ...")
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     _model = AutoModelForSpeechSeq2Seq.from_pretrained(
@@ -218,6 +250,68 @@ def load_audio_bytes(data: bytes) -> torch.Tensor:
     return waveform.squeeze(0)
 
 
+def _rms_dbfs(waveform: torch.Tensor) -> float:
+    if waveform.numel() == 0:
+        return -999.0
+    rms = float(torch.sqrt(torch.mean(waveform.float() ** 2)))
+    return 20.0 * math.log10(rms) if rms > 0 else -999.0
+
+
+def _peak_dbfs(waveform: torch.Tensor) -> float:
+    if waveform.numel() == 0:
+        return -999.0
+    pk = float(waveform.abs().max())
+    return 20.0 * math.log10(pk) if pk > 0 else -999.0
+
+
+def normalize_level(waveform: torch.Tensor) -> tuple[torch.Tensor, dict]:
+    """Bring a clip to a target RMS, without clipping, and report what was done.
+
+    This is the second half of the repetition-loop fix (looping-analysis.md).
+    Two distinct failures were measured; the repetition penalty addresses only one:
+
+      1. decode-time repetition lock  -- level-independent. `it` x677 before AND
+         after +16 dB of gain. Fixed by PLUS_REPETITION_PENALTY.
+      2. confabulation over near-silence -- level-DEPENDENT, and the source of the
+         invented German ("herr kommissar", a string absent from the audio). MIT
+         5.07 @471.6 s sits at -48.9 dBFS RMS; untreated the model invents 200
+         repetitions, and after normalisation it returns 1-4 tokens, i.e. it
+         correctly reports that almost nothing was said. Verified on this server
+         and independently on the hosted NCSA Lumen endpoint.
+
+    Gain is capped two ways: PLUS_NORMALIZE_MAX_GAIN_DB (so digital silence is not
+    amplified 60 dB into its own dither) and a peak ceiling (so nothing clips).
+    The peak ceiling is usually what binds on very quiet material -- for the 5.07
+    clip it yields +15.8 dB rather than the +28.9 dB the RMS target alone implies,
+    which is exactly the treatment measured to fix that clip.
+    """
+    info: dict = {"rms_dbfs_in": round(_rms_dbfs(waveform), 1), "gain_db": 0.0,
+                  "gated": False}
+    if not NORMALIZE_AUDIO or waveform.numel() == 0:
+        return waveform, info
+
+    rms_in = info["rms_dbfs_in"]
+
+    # Gate: below this there is nothing worth amplifying. Chosen deliberately far
+    # below the loss-optimal value -- see looping-analysis.md. Across 4 171 real
+    # 14 s windows (16.3 h), everything under -50 dBFS held 3 transcribable words
+    # in total, so this is close to free; a gate aggressive enough to catch loops
+    # (-43 dBFS) would discard genuine speech that normalisation rescues instead.
+    if rms_in < SILENCE_GATE_DBFS:
+        info["gated"] = True
+        return waveform, info
+
+    gain_db = NORMALIZE_TARGET_DBFS - rms_in
+    gain_db = max(min(gain_db, NORMALIZE_MAX_GAIN_DB), 0.0)   # boost only, never attenuate
+    headroom = PEAK_CEILING_DBFS - _peak_dbfs(waveform)
+    gain_db = min(gain_db, max(headroom, 0.0))
+    if gain_db > 0.05:
+        waveform = waveform * (10.0 ** (gain_db / 20.0))
+    info["gain_db"] = round(gain_db, 1)
+    info["rms_dbfs_out"] = round(_rms_dbfs(waveform), 1)
+    return waveform, info
+
+
 def _infer(waveform: torch.Tensor, user_content: str) -> str:
     """Synchronous inference — runs in the thread executor, not the event loop."""
     messages = [
@@ -244,6 +338,15 @@ async def transcribe(
 ):
     audio_bytes = await file.read()
     waveform = load_audio_bytes(audio_bytes)
+    waveform, level = normalize_level(waveform)
+    if level["gated"]:
+        # Below the silence gate: return empty rather than let the model invent
+        # content. An empty string stitches harmlessly in the chunking proxy.
+        print(f"[plus] gated: {level['rms_dbfs_in']} dBFS < {SILENCE_GATE_DBFS} dBFS")
+        return JSONResponse({"text": ""})
+    if level["gain_db"] > 0.05:
+        print(f"[plus] level: {level['rms_dbfs_in']} -> {level['rms_dbfs_out']} dBFS "
+              f"(+{level['gain_db']} dB)")
     user_content = prompt if prompt.startswith("<|audio|>") else f"<|audio|> {prompt}"
     loop = asyncio.get_event_loop()
     async with _INFER_SEM:

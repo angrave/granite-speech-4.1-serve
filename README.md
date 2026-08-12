@@ -189,6 +189,11 @@ COMPOSE_PROFILES=nar
 | `PLUS_MAX_NEW_TOKENS` | `4096` | Max output tokens per chunk for the plus model (~3700 words) |
 | `PLUS_REPETITION_PENALTY` | `1.1` | Guards against repetition-loop hallucination, where the model repeats a short cycle until the token budget is exhausted. Set `1.0` to restore the previous (unguarded) behaviour — see [looping-analysis.md](looping-analysis.md) |
 | `PLUS_NO_REPEAT_NGRAM` | `0` _(off)_ | Hard ban on repeated n-grams. Blunter than the penalty — it also blocks legitimate repeated phrasing — so reach for it only in stubborn cases |
+| `PLUS_NORMALIZE_AUDIO` | `1` | Normalise each clip's level before inference. Removes the second hallucination mode: confabulation over near-silence. `0` disables normalisation and the gate |
+| `PLUS_NORMALIZE_TARGET_DBFS` | `-20` | Target RMS level |
+| `PLUS_NORMALIZE_MAX_GAIN_DB` | `30` | Gain cap, so digital silence is not amplified into its own dither |
+| `PLUS_PEAK_CEILING_DBFS` | `-1` | Never clip. On very quiet material this is what actually binds |
+| `PLUS_SILENCE_GATE_DBFS` | `-50` | Below this, return empty rather than let the model invent content. A deep backstop, not the fix — see [looping-analysis.md](looping-analysis.md) for why the loss-optimal gate (−43 dBFS) was rejected |
 | `PLUS_INTERNAL_URL` | `http://127.0.0.1:$GRANITE_PLUS_PROXY_PORT/v1/audio/transcriptions` | Plus proxy → model URL (set automatically in Docker) |
 | `PLUS_CHUNK_MAX_S` | `14` | Max chunk length in seconds for plain/timestamps modes |
 | `PLUS_SPEAKER_MAX_UNCHUNKED_S` | `120` | Audio at or below this duration is sent as a single request in speaker/combined modes (avoids per-chunk speaker label drift) |
