@@ -209,7 +209,48 @@ filter can recover it. Re-decoding does. On MIT 5.07 the penalised decode yields
 7 843 words against 7 773 non-loop words at baseline — it recovers content that
 post-hoc removal cannot.
 
-### Choosing the value
+
+### End-to-end sweep: 1.1 is the WER optimum, not just the loop optimum
+
+The value was first chosen by loop suppression on two clips. That is a different
+question from "which value gives the best transcript", so all five were re-decoded over
+three full lectures and scored against gold under the Whisper `EnglishTextNormalizer`:
+
+| penalty | WER | 1-WAR | insertion rate | S | D | I |
+|---|---:|---:|---:|---:|---:|---:|
+| 1.00 (baseline) | 0.2103 | 0.0271 | 0.1833 | 390 | 215 | 4099 |
+| 1.02 | 0.1907 | **0.0264** | 0.1644 | 389 | 201 | 3676 |
+| 1.05 | 0.0911 | **0.0264** | 0.0647 | 387 | 204 | 1446 |
+| **1.10 (default)** | **0.0499** | 0.0288 | **0.0211** | 394 | 251 | 472 |
+| 1.15 | 0.0921 | 0.0328 | 0.0593 | 448 | 285 | 1326 |
+
+**1.15 is strictly dominated** -- worse WER *and* worse 1-WAR than 1.10. Substitutions
+rise 394 -> 448 and deletions 251 -> 285: past 1.1 the penalty starts suppressing
+legitimate repeated speech, while also letting more loops through.
+
+The tradeoff at the optimum, stated plainly: 1.05 has the best word recall (1-WAR 0.0264
+vs 0.0288, so 1.10 costs +9 % relative) but 1.10 cuts WER by 45 % relative. The
+insertion reduction dwarfs the recall cost.
+
+**The response is not monotonic, and the surface is lecture-dependent.** Loop tokens as
+a fraction of output:
+
+| penalty | Yale PSYC 110 | MIT 5.07 | MIT 6.0001 | aggregate |
+|---|---:|---:|---:|---:|
+| 1.00 | 13.1 % | 23.8 % | 5.97 % | 14.3 % |
+| 1.02 | 13.14 % | 20.76 % | 5.99 % | 12.95 % |
+| 1.05 | 0.20 % | 4.95 % | **5.96 %** | 4.53 % |
+| 1.10 | 0.09 % | **0.00 %** | 0.13 % | **0.08 %** |
+| 1.15 | 0.00 % | **4.05 %** | 0.09 % | 1.50 % |
+
+1.05 clears two lectures and leaves the third untouched. 1.15 *reintroduces* loops on
+5.07 that 1.10 had eliminated. **Do not treat this knob as a monotone safety dial** --
+"when unsure, go higher" is wrong here. 1.10 is a measured local optimum; re-tune by
+re-measuring, not by extrapolating. This is also the argument for defence in depth
+(`granite_gator`'s chomp, or vLLM's `repetition_detection`), which catches whatever a
+given penalty setting misses on a given recording.
+
+### Choosing the value (clip-level, how 1.1 was first picked)
 
 Max consecutive repeats of any 1–4 token cycle, on the two hardest clips:
 

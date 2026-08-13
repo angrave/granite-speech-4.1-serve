@@ -108,11 +108,10 @@ MAX_NEW_TOKENS  = int(os.environ.get("PLUS_MAX_NEW_TOKENS", "4096"))
 #
 # WHY 1.1 — max consecutive repeats of any 1-4 token cycle, hardest clip:
 #   1.0 -> x677 | 1.02 -> x8 | 1.05 -> x7 | 1.1 -> x2 | 1.15 -> x2
-# 1.1 is the lowest tested value that fully clears the loop; 1.15 adds nothing and
-# risks suppressing legitimate repetition.  Cost, measured end-to-end against gold
-# captions under the Whisper EnglishTextNormalizer: +0.0017 in 1-WAR (within
-# noise) for a 0.16 WER reduction.  Hence on by default; set 1.0 to restore the
-# previous behaviour exactly.
+# Note the clip-level view MEASURES LOOP LENGTH, NOT LOOP INCIDENCE, and overstates
+# how much a weak penalty helps: 1.02 collapses the clip from 683 tokens to 56, yet
+# over whole lectures it barely moves the loop burden (14.3% -> 12.95%).  Incidence
+# is what costs you.  Set 1.0 to restore the previous behaviour exactly.
 #
 # WHAT THIS DOES *NOT* FIX: chunk size is not the cause (10/14/20 s all still
 # loop) and neither is the proxy — loops reproduce with no chunking at all, and on
